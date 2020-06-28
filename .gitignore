@@ -1,0 +1,6 @@
+/target
+
+# Test stuff
+data.csv
+data-full.csv
+*.db

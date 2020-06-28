@@ -1,0 +1,19 @@
+expr = { soi ~ query ~ eoi }
+
+soi = _{ SOI }
+eoi = _{ EOI }
+
+or = { "OR" }
+and = { "AND" }
+not = { "NOT" }
+
+query = { term  }
+negated_term = { not ~ term }
+term = { facet | ("(" ~ query ~ (and | or) ~ query ~ ")") }
+
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+facet = @{ alpha ~ (alpha | digit | "_")* ~ "-" ~ (digit+ | "null") }
+
+WHITESPACE = _{ " " }
+

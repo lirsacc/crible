@@ -33,8 +33,9 @@ pub struct GlobalStats {
 }
 
 pub struct SearchIndex {
-    facets: HashMap<String, croaring::Treemap>,
+    facets: HashMap<String, Treemap>,
     last_change: std::time::Instant,
+    all_values: Treemap,
 }
 
 impl SearchIndex {
@@ -42,6 +43,7 @@ impl SearchIndex {
         Self {
             facets: HashMap::new(),
             last_change: std::time::Instant::now(),
+            all_values: Treemap::create(),
         }
     }
 
@@ -49,6 +51,7 @@ impl SearchIndex {
         let mut index = Self::new();
         for (k, v) in backend.load()? {
             let tm = Treemap::of(&v);
+            index.all_values.or_inplace(&tm);
             index.facets.insert(k, tm);
         }
         index.optimize();
@@ -58,6 +61,12 @@ impl SearchIndex {
 
     pub fn record_change(&mut self) {
         self.last_change = std::time::Instant::now();
+        // TODO: This is slow to do all the time. Ideally would happen on demand.
+        let mut f = Treemap::create();
+        for (_, tm) in self.iter_facets() {
+            f.or_inplace(tm);
+        }
+        self.all_values = f;
     }
 
     pub fn has_changed_since(&self, since: std::time::Instant) -> bool {
@@ -69,15 +78,11 @@ impl SearchIndex {
     }
 
     pub fn stats(&self) -> GlobalStats {
-        let mut f = Treemap::create();
-        for (_, tm) in self.iter_facets() {
-            f.or_inplace(tm);
-        }
         GlobalStats {
             length: self.len(),
-            cardinality: f.cardinality(),
-            minimum: f.minimum(),
-            maximum: f.maximum(),
+            cardinality: self.all_values.cardinality(),
+            minimum: self.all_values.minimum(),
+            maximum: self.all_values.maximum(),
         }
     }
 
@@ -126,9 +131,11 @@ impl SearchIndex {
 
     pub fn add(&mut self, key: &str, value: u64) {
         let facet = self.facet_mut(key);
-        facet.add(value);
-        facet.run_optimize();
-        self.record_change();
+        if !facet.contains(value) {
+            facet.add(value);
+            facet.run_optimize();
+            self.record_change();
+        }
     }
 
     pub fn remove(
@@ -136,12 +143,15 @@ impl SearchIndex {
         key: &str,
         value: u64,
     ) -> Result<(), SearchIndexError> {
-        self.facet_mut_strict(key)?.remove(value);
-        self.record_change();
+        let facet = self.facet_mut_strict(key)?;
+        if facet.contains(value) {
+            facet.remove(value);
+            facet.run_optimize();
+            self.record_change();
+        };
         Ok(())
     }
 
-    // WARN: Slow.
     pub fn deindex(&mut self, value: u64) {
         for tm in self.facets.values_mut() {
             tm.remove(value);
@@ -166,14 +176,26 @@ impl SearchIndex {
     ) -> Result<Treemap, SearchIndexError> {
         match expr {
             Expr::Const(_) => unreachable!(),
-            Expr::Not(_) => unimplemented!(),
+            Expr::Not(e) => {
+                Ok(self.all_values.andnot(&self.apply_expression(*e)?))
+            }
             Expr::Terminal(key) => {
                 let blank = Treemap::create();
                 Ok(blank.or(self.facet(&key)?))
             }
-            Expr::And(lhs, rhs) => Ok(self
-                .apply_expression(*lhs)?
-                .and(&self.apply_expression(*rhs)?)),
+            Expr::And(lhs, rhs) => Ok(match (*lhs, *rhs) {
+                (Expr::Not(x), Expr::Not(y)) => self.all_values.andnot(
+                    &self
+                        .apply_expression(*x)?
+                        .or(&self.apply_expression(*y)?),
+                ),
+                (Expr::Not(x), y) | (y, Expr::Not(x)) => self
+                    .apply_expression(y)?
+                    .andnot(&self.apply_expression(*x)?),
+                (x, y) => {
+                    self.apply_expression(x)?.and(&self.apply_expression(y)?)
+                }
+            }),
             Expr::Or(lhs, rhs) => Ok(self
                 .apply_expression(*lhs)?
                 .or(&self.apply_expression(*rhs)?)),
@@ -229,5 +251,22 @@ mod tests {
         matches.sort();
 
         assert_eq!(matches, vec![42, 43, 44]);
+    }
+
+    #[test]
+    fn simple_not() {
+        let mut index = SearchIndex::new();
+        index.add("foo-0", 42);
+        index.add("foo-0", 43);
+        index.add("foo-1", 42);
+        index.add("foo-1", 44);
+
+        let mut matches = index
+            .apply_expression(parse_expression("NOT foo-0").unwrap())
+            .unwrap()
+            .to_vec();
+        matches.sort();
+
+        assert_eq!(matches, vec![44]);
     }
 }

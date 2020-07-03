@@ -1,19 +1,16 @@
-expr = { soi ~ query ~ eoi }
-
-soi = _{ SOI }
-eoi = _{ EOI }
+WHITESPACE = _{ " " }
 
 or = { "OR" }
 and = { "AND" }
 not = { "NOT" }
 
-query = { term  }
-negated_term = { not ~ term }
-term = { facet | ("(" ~ query ~ (and | or) ~ query ~ ")") }
+parens_open = _{"("}
+parens_close = _{")"}
 
-alpha = { 'a'..'z' | 'A'..'Z' }
-digit = { '0'..'9' }
-facet = @{ alpha ~ (alpha | digit | "_")* ~ "-" ~ (digit+ | "null") }
+token = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
+primary = { token | (parens_open ~ or_term ~ parens_close) }
+factor = { (not ~ factor) | primary }
+and_term = { (factor ~ and ~ and_term) | factor }
+or_term = { (and_term ~ or ~ or_term) | and_term }
 
-WHITESPACE = _{ " " }
-
+query = { SOI ~ or_term ~ EOI }

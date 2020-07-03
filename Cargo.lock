@@ -238,6 +238,7 @@ dependencies = [
  "croaring",
  "csv",
  "log 0.4.8",
+ "parameterized",
  "pest",
  "pest_derive",
  "pretty_env_logger",
@@ -710,6 +711,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "linked-hash-map"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
+
+[[package]]
 name = "log"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,6 +924,27 @@ name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2839e79665f131bdb5782e51f2c6c9599c133c6098982a54c794358bf432529c"
+
+[[package]]
+name = "parameterized"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b71f64f20ea2670c68680576b4e5dcebde46c6724b1999fa0e078b867eb99ff"
+dependencies = [
+ "parameterized-macro",
+]
+
+[[package]]
+name = "parameterized-macro"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a28065af8de1867c0eee6b63abe828452fe3e886ab37b45f566c5c36a7d55f35"
+dependencies = [
+ "linked-hash-map",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "peeking_take_while"

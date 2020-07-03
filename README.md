@@ -98,7 +98,7 @@ In no particular order.
   - We can construct a bitmap from min to max and invert from this (we'd need to cache the min and max over all bitmaps); accepting that this case is likely to be slow.
   - Update the pest grammar to not support negating the root clause.
 
-- [ ] Proper thouhgt given tothe HTTP API structure and design, including evaluating if JSON is a good fit and how facets are represented.
+- [ ] Proper thouhgt given to the HTTP API structure and design, including evaluating if JSON is a good fit and how facets are represented.
 
 - [ ] General code hygiene, refactoring, etc. from the current _thrown together prototype_ state.
 

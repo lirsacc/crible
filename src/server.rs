@@ -143,6 +143,32 @@ pub async fn search_handler(
     }
 }
 
+pub async fn count_handler(
+    state: Arc<RwLock<SearchIndex>>,
+    query: SearchQuery,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    match parse_expression(&query.query) {
+        Ok(expr) => {
+            match state.read().await.apply_expression(expr.simplify_via_bdd())
+            {
+                Ok(tm) => {
+                    Ok(warp::reply::json(&tm.cardinality()).into_response())
+                }
+                Err(err) => Ok(warp::reply::with_status(
+                    format!("{}", err),
+                    warp::http::StatusCode::BAD_REQUEST,
+                )
+                .into_response()),
+            }
+        }
+        Err(err) => Ok(warp::reply::with_status(
+            format!("{}", err),
+            warp::http::StatusCode::BAD_REQUEST,
+        )
+        .into_response()),
+    }
+}
+
 pub async fn stats_handler(
     state: Arc<RwLock<SearchIndex>>,
     cache: Arc<Mutex<Cache>>,
@@ -213,6 +239,13 @@ pub async fn run_server(
         .and(warp::query::<SearchQuery>())
         .and_then(search_handler);
 
+    let count = warp::get()
+        .and(warp::path("count"))
+        .and(warp::path::end())
+        .and(state_filter.clone())
+        .and(warp::query::<SearchQuery>())
+        .and_then(count_handler);
+
     let add = warp::post()
         .and(warp::path!("add" / String / u64))
         .and(warp::path::end())
@@ -246,6 +279,7 @@ pub async fn run_server(
         .or(stats)
         .or(facets)
         .or(search)
+        .or(count)
         .or(add)
         .or(remove)
         .or(deindex)

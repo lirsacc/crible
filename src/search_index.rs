@@ -165,16 +165,11 @@ impl SearchIndex {
     }
 
     pub fn recompute_root(&mut self) {
-        crate::utils::timed_cb(
-            || {
-                let sources: Vec<&Bitmap> =
-                    self.iter_facets().map(|(_, v)| v).collect();
-                let mut root = Bitmap::fast_or(&sources);
-                root.run_optimize();
-                self.root = root;
-            },
-            |d| log::info!("Recomputed root in {:?}", d),
-        )
+        let sources: Vec<&Bitmap> =
+            self.iter_facets().map(|(_, v)| v).collect();
+        let mut root = Bitmap::fast_or(&sources);
+        root.run_optimize();
+        self.root = root;
     }
 
     pub fn apply_expression(

@@ -50,22 +50,16 @@ impl SearchIndex {
     pub fn from_backend(backend: &impl Backend) -> Result<Self, BackendError> {
         let mut index = Self::new();
         for (k, v) in backend.load()? {
-            index.root.or_inplace(&v);
             index.facets.insert(k, v);
         }
-        index.optimize();
-        index.last_change = std::time::Instant::now();
+        index.record_change();
         Ok(index)
     }
 
     pub fn record_change(&mut self) {
         self.last_change = std::time::Instant::now();
         // TODO: This is slow to do all the time. Ideally would happen on demand.
-        let mut f = Treemap::create();
-        for (_, tm) in self.iter_facets() {
-            f.or_inplace(tm);
-        }
-        self.root = f;
+        self.recompute_root();
     }
 
     pub fn has_changed_since(&self, since: std::time::Instant) -> bool {
@@ -152,10 +146,17 @@ impl SearchIndex {
     }
 
     pub fn deindex(&mut self, value: u64) {
-        for tm in self.facets.values_mut() {
-            tm.remove(value);
+        let mut changed = false;
+        for facet in self.facets.values_mut() {
+            if facet.contains(value) {
+                facet.remove(value);
+                facet.run_optimize();
+                changed = true;
+            };
         }
-        self.record_change();
+        if changed {
+            self.record_change();
+        }
     }
 
     pub fn drop_facet(&mut self, key: &str) {
@@ -163,10 +164,13 @@ impl SearchIndex {
         self.record_change();
     }
 
-    pub fn optimize(&mut self) {
-        for tm in self.facets.values_mut() {
-            tm.run_optimize();
+    pub fn recompute_root(&mut self) {
+        let mut root = Treemap::create();
+        for (_, v) in self.iter_facets() {
+            root.or_inplace(v);
         }
+        root.run_optimize();
+        self.root = root;
     }
 
     pub fn apply_expression(

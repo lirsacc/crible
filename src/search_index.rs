@@ -184,10 +184,7 @@ impl SearchIndex {
         match expr {
             Expr::Const(_) => unreachable!(),
             Expr::Not(e) => Ok(self.root.andnot(&self.apply_expression(*e)?)),
-            Expr::Terminal(key) => {
-                let blank = Bitmap::create();
-                Ok(blank.or(self.facet(&key)?))
-            }
+            Expr::Terminal(key) => Ok(self.facet(&key)?.clone()),
             Expr::And(lhs, rhs) => Ok(match (*lhs, *rhs) {
                 (Expr::Not(x), Expr::Not(y)) => self.root.andnot(
                     &self

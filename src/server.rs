@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use croaring::Treemap;
+use croaring::Bitmap;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use warp::reply::Reply;
@@ -63,7 +63,7 @@ pub async fn facet_stats_handler(
 
 pub async fn add_handler(
     facet: String,
-    value: u64,
+    value: u32,
     state: Arc<RwLock<SearchIndex>>,
     cache: Arc<Mutex<Cache>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -75,7 +75,7 @@ pub async fn add_handler(
 
 pub async fn remove_handler(
     facet: String,
-    value: u64,
+    value: u32,
     state: Arc<RwLock<SearchIndex>>,
     cache: Arc<Mutex<Cache>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -99,7 +99,7 @@ pub async fn remove_handler(
 }
 
 pub async fn deindex_handler(
-    value: u64,
+    value: u32,
     state: Arc<RwLock<SearchIndex>>,
     cache: Arc<Mutex<Cache>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
@@ -248,21 +248,21 @@ pub async fn run_server(
         .and_then(count_handler);
 
     let add = warp::post()
-        .and(warp::path!("add" / String / u64))
+        .and(warp::path!("add" / String / u32))
         .and(warp::path::end())
         .and(state_filter.clone())
         .and(cache_filter.clone())
         .and_then(add_handler);
 
     let remove = warp::post()
-        .and(warp::path!("remove" / String / u64))
+        .and(warp::path!("remove" / String / u32))
         .and(warp::path::end())
         .and(state_filter.clone())
         .and(cache_filter.clone())
         .and_then(remove_handler);
 
     let deindex = warp::post()
-        .and(warp::path!("deindex" / u64))
+        .and(warp::path!("deindex" / u32))
         .and(warp::path::end())
         .and(state_filter.clone())
         .and(cache_filter.clone())
@@ -323,7 +323,7 @@ where
             let (should_save, data) = {
                 let index = index.read().await;
                 if index.has_changed_since(last_save) {
-                    let data: Vec<(String, Treemap)> = index
+                    let data: Vec<(String, Bitmap)> = index
                         .iter_facets()
                         .map(|(k, f)| (k.clone(), f.clone()))
                         .collect();

@@ -1,5 +1,4 @@
-use croaring::treemap::NativeSerializer;
-use croaring::Treemap;
+use croaring::Bitmap;
 use log::info;
 use thiserror::Error;
 
@@ -23,16 +22,16 @@ pub enum BackendError {
 pub trait Backend: Send + Sync {
     fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        facets: impl IntoIterator<Item = (&'a str, &'a Bitmap)>,
         clear: bool,
     ) -> Result<(), BackendError>;
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        facet: &'a Treemap,
+        facet: &'a Bitmap,
     ) -> Result<(), BackendError>;
     fn delete_facet<'a>(&self, key: &'a str) -> Result<(), BackendError>;
-    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError>;
+    fn load(&self) -> Result<Vec<(String, Bitmap)>, BackendError>;
     fn clear(&self) -> Result<(), BackendError>;
 }
 
@@ -51,7 +50,7 @@ impl FSBackend {
 impl Backend for FSBackend {
     fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        facets: impl IntoIterator<Item = (&'a str, &'a Bitmap)>,
         clear: bool,
     ) -> Result<(), BackendError> {
         let mut seen: std::collections::HashSet<String> =
@@ -80,7 +79,7 @@ impl Backend for FSBackend {
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        data: &'a Treemap,
+        data: &'a Bitmap,
     ) -> Result<(), BackendError> {
         let path = self.directory.join(key);
         let mut file = OpenOptions::new()
@@ -89,7 +88,7 @@ impl Backend for FSBackend {
             .create(true)
             .open(&path)?;
         file.seek(SeekFrom::Start(0))?;
-        file.write_all(&data.serialize()?)?;
+        file.write_all(&data.serialize())?;
         Ok(())
     }
 
@@ -99,12 +98,12 @@ impl Backend for FSBackend {
         Ok(())
     }
 
-    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError> {
-        let mut data: Vec<(String, Treemap)> = Vec::new();
+    fn load(&self) -> Result<Vec<(String, Bitmap)>, BackendError> {
+        let mut data: Vec<(String, Bitmap)> = Vec::new();
         for r in std::fs::read_dir(&self.directory)? {
             let path = r?.path();
             let bytes = std::fs::read(&path)?;
-            let decoded: Treemap = Treemap::deserialize(&bytes[..])?;
+            let decoded: Bitmap = Bitmap::deserialize(&bytes[..]);
             let key = path.file_name().unwrap().to_str().unwrap().to_owned();
             data.push((key, decoded));
         }
@@ -139,7 +138,7 @@ where
 {
     fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        facets: impl IntoIterator<Item = (&'a str, &'a Bitmap)>,
         clear: bool,
     ) -> Result<(), BackendError> {
         timed_cb(
@@ -151,7 +150,7 @@ where
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        facet: &'a Treemap,
+        facet: &'a Bitmap,
     ) -> Result<(), BackendError> {
         timed_cb(
             || self.inner.save_facet(key, facet),
@@ -166,7 +165,7 @@ where
         )
     }
 
-    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError> {
+    fn load(&self) -> Result<Vec<(String, Bitmap)>, BackendError> {
         timed_cb(
             || self.inner.load(),
             |d| info!("Loaded all facets in {:?}", d),
@@ -193,11 +192,11 @@ pub fn import_csv(
         .into_iter()
         .enumerate()
         .collect::<Vec<(usize, &str)>>()[1..headers.len()];
-    let mut data: HashMap<String, Treemap> = HashMap::new();
+    let mut data: HashMap<String, Bitmap> = HashMap::new();
 
     for row in rdr.records() {
         let record = row?;
-        let value = &record[0].parse::<u64>()?;
+        let value = &record[0].parse::<u32>()?;
 
         for (i, t) in index_columns {
             let key_str = &record[*i];
@@ -207,17 +206,17 @@ pub fn import_csv(
                 keys.push(format!("{}-null", t));
             } else if key_str.contains('|') {
                 for part in key_str.split('|') {
-                    keys.push(format!("{}-{}", t, part.parse::<u64>()?))
+                    keys.push(format!("{}-{}", t, part.parse::<u32>()?))
                 }
             } else {
-                keys.push(format!("{}-{}", t, key_str.parse::<u64>()?));
+                keys.push(format!("{}-{}", t, key_str.parse::<u32>()?));
             }
 
             for key in keys {
                 match data.entry(key) {
                     Entry::Occupied(e) => e.into_mut().add(*value),
                     Entry::Vacant(e) => {
-                        e.insert(Treemap::of(&[*value]));
+                        e.insert(Bitmap::of(&[*value]));
                     }
                 };
             }

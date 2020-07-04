@@ -1,10 +1,10 @@
 use boolean_expression::Expr;
-use croaring::Treemap;
+use croaring::Bitmap;
 use thiserror::Error;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::u64;
+use std::u32;
 
 use crate::backend::{Backend, BackendError};
 
@@ -20,22 +20,22 @@ pub enum SearchIndexError {
 pub struct FacetStats {
     pub key: String,
     pub cardinality: u64,
-    pub minimum: Option<u64>,
-    pub maximum: Option<u64>,
+    pub minimum: Option<u32>,
+    pub maximum: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GlobalStats {
     pub length: usize,
     pub cardinality: u64,
-    pub minimum: Option<u64>,
-    pub maximum: Option<u64>,
+    pub minimum: Option<u32>,
+    pub maximum: Option<u32>,
 }
 
 pub struct SearchIndex {
-    facets: HashMap<String, Treemap>,
+    facets: HashMap<String, Bitmap>,
     last_change: std::time::Instant,
-    root: Treemap,
+    root: Bitmap,
 }
 
 impl SearchIndex {
@@ -43,7 +43,7 @@ impl SearchIndex {
         Self {
             facets: HashMap::new(),
             last_change: std::time::Instant::now(),
-            root: Treemap::create(),
+            root: Bitmap::create(),
         }
     }
 
@@ -92,28 +92,28 @@ impl SearchIndex {
         })
     }
 
-    pub fn iter_facets(&self) -> impl Iterator<Item = (&String, &Treemap)> {
+    pub fn iter_facets(&self) -> impl Iterator<Item = (&String, &Bitmap)> {
         self.facets.iter()
     }
 
-    pub fn facet(&self, key: &str) -> Result<&Treemap, SearchIndexError> {
+    pub fn facet(&self, key: &str) -> Result<&Bitmap, SearchIndexError> {
         match &self.facets.get(key) {
             Some(tm) => Ok(tm),
             None => Err(SearchIndexError::FacetDoesNotExist(key.to_owned())),
         }
     }
 
-    pub fn facet_mut(&mut self, key: &str) -> &mut Treemap {
+    pub fn facet_mut(&mut self, key: &str) -> &mut Bitmap {
         match self.facets.entry(key.to_owned()) {
             Entry::Occupied(e) => &mut *e.into_mut(),
-            Entry::Vacant(e) => &mut *e.insert(Treemap::create()),
+            Entry::Vacant(e) => &mut *e.insert(Bitmap::create()),
         }
     }
 
     pub fn facet_mut_strict(
         &mut self,
         key: &str,
-    ) -> Result<&mut Treemap, SearchIndexError> {
+    ) -> Result<&mut Bitmap, SearchIndexError> {
         match self.facets.entry(key.to_owned()) {
             Entry::Occupied(e) => Ok(&mut *e.into_mut()),
             Entry::Vacant(_) => {
@@ -122,7 +122,7 @@ impl SearchIndex {
         }
     }
 
-    pub fn add(&mut self, key: &str, value: u64) {
+    pub fn add(&mut self, key: &str, value: u32) {
         let facet = self.facet_mut(key);
         if !facet.contains(value) {
             facet.add(value);
@@ -134,7 +134,7 @@ impl SearchIndex {
     pub fn remove(
         &mut self,
         key: &str,
-        value: u64,
+        value: u32,
     ) -> Result<(), SearchIndexError> {
         let facet = self.facet_mut_strict(key)?;
         if facet.contains(value) {
@@ -145,7 +145,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn deindex(&mut self, value: u64) {
+    pub fn deindex(&mut self, value: u32) {
         let mut changed = false;
         for facet in self.facets.values_mut() {
             if facet.contains(value) {
@@ -165,23 +165,27 @@ impl SearchIndex {
     }
 
     pub fn recompute_root(&mut self) {
-        let mut root = Treemap::create();
-        for (_, v) in self.iter_facets() {
-            root.or_inplace(v);
-        }
-        root.run_optimize();
-        self.root = root;
+        crate::utils::timed_cb(
+            || {
+                let sources: Vec<&Bitmap> =
+                    self.iter_facets().map(|(_, v)| v).collect();
+                let mut root = Bitmap::fast_or(&sources);
+                root.run_optimize();
+                self.root = root;
+            },
+            |d| log::info!("Recomputed root in {:?}", d),
+        )
     }
 
     pub fn apply_expression(
         &self,
         expr: Expr<String>,
-    ) -> Result<Treemap, SearchIndexError> {
+    ) -> Result<Bitmap, SearchIndexError> {
         match expr {
             Expr::Const(_) => unreachable!(),
             Expr::Not(e) => Ok(self.root.andnot(&self.apply_expression(*e)?)),
             Expr::Terminal(key) => {
-                let blank = Treemap::create();
+                let blank = Bitmap::create();
                 Ok(blank.or(self.facet(&key)?))
             }
             Expr::And(lhs, rhs) => Ok(match (*lhs, *rhs) {

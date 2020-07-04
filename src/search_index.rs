@@ -35,7 +35,7 @@ pub struct GlobalStats {
 pub struct SearchIndex {
     facets: HashMap<String, Treemap>,
     last_change: std::time::Instant,
-    all_values: Treemap,
+    root: Treemap,
 }
 
 impl SearchIndex {
@@ -43,16 +43,15 @@ impl SearchIndex {
         Self {
             facets: HashMap::new(),
             last_change: std::time::Instant::now(),
-            all_values: Treemap::create(),
+            root: Treemap::create(),
         }
     }
 
     pub fn from_backend(backend: &impl Backend) -> Result<Self, BackendError> {
         let mut index = Self::new();
         for (k, v) in backend.load()? {
-            let tm = Treemap::of(&v);
-            index.all_values.or_inplace(&tm);
-            index.facets.insert(k, tm);
+            index.root.or_inplace(&v);
+            index.facets.insert(k, v);
         }
         index.optimize();
         index.last_change = std::time::Instant::now();
@@ -66,7 +65,7 @@ impl SearchIndex {
         for (_, tm) in self.iter_facets() {
             f.or_inplace(tm);
         }
-        self.all_values = f;
+        self.root = f;
     }
 
     pub fn has_changed_since(&self, since: std::time::Instant) -> bool {
@@ -80,9 +79,9 @@ impl SearchIndex {
     pub fn stats(&self) -> GlobalStats {
         GlobalStats {
             length: self.len(),
-            cardinality: self.all_values.cardinality(),
-            minimum: self.all_values.minimum(),
-            maximum: self.all_values.maximum(),
+            cardinality: self.root.cardinality(),
+            minimum: self.root.minimum(),
+            maximum: self.root.maximum(),
         }
     }
 
@@ -176,15 +175,13 @@ impl SearchIndex {
     ) -> Result<Treemap, SearchIndexError> {
         match expr {
             Expr::Const(_) => unreachable!(),
-            Expr::Not(e) => {
-                Ok(self.all_values.andnot(&self.apply_expression(*e)?))
-            }
+            Expr::Not(e) => Ok(self.root.andnot(&self.apply_expression(*e)?)),
             Expr::Terminal(key) => {
                 let blank = Treemap::create();
                 Ok(blank.or(self.facet(&key)?))
             }
             Expr::And(lhs, rhs) => Ok(match (*lhs, *rhs) {
-                (Expr::Not(x), Expr::Not(y)) => self.all_values.andnot(
+                (Expr::Not(x), Expr::Not(y)) => self.root.andnot(
                     &self
                         .apply_expression(*x)?
                         .or(&self.apply_expression(*y)?),

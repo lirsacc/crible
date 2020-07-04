@@ -1,3 +1,5 @@
+use croaring::treemap::NativeSerializer;
+use croaring::Treemap;
 use log::info;
 use thiserror::Error;
 
@@ -16,23 +18,21 @@ pub enum BackendError {
     CSVError(#[from] csv::Error),
     #[error("integer parsing error error")]
     IntegerParsingError(#[from] std::num::ParseIntError),
-    #[error("serialization error")]
-    EncodingError(#[from] bincode::Error),
 }
 
-pub trait Backend {
-    fn save(
+pub trait Backend: Send + Sync {
+    fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (String, Vec<u64>)>,
-        delete_missing: bool,
+        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        clear: bool,
     ) -> Result<(), BackendError>;
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        data: &'a [u64],
+        facet: &'a Treemap,
     ) -> Result<(), BackendError>;
     fn delete_facet<'a>(&self, key: &'a str) -> Result<(), BackendError>;
-    fn load(&self) -> Result<Vec<(String, Vec<u64>)>, BackendError>;
+    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError>;
     fn clear(&self) -> Result<(), BackendError>;
 }
 
@@ -49,15 +49,15 @@ impl FSBackend {
 }
 
 impl Backend for FSBackend {
-    fn save(
+    fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (String, Vec<u64>)>,
-        delete_missing: bool,
+        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        clear: bool,
     ) -> Result<(), BackendError> {
         let mut seen: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
-        if delete_missing {
+        if clear {
             match std::fs::remove_dir_all(&self.directory) {
                 Ok(()) => Ok(()),
                 Err(e) => match e.kind() {
@@ -69,20 +69,9 @@ impl Backend for FSBackend {
 
         std::fs::create_dir_all(&self.directory)?;
 
-        for (k, v) in facets.into_iter() {
+        for (k, v) in facets {
             self.save_facet(&k, &v)?;
             seen.insert(k.to_owned());
-        }
-
-        if delete_missing {
-            for r in std::fs::read_dir(&self.directory)? {
-                let path = r?.path();
-                let key =
-                    path.file_name().unwrap().to_str().unwrap().to_owned();
-                if !seen.contains(&key) {
-                    std::fs::remove_file(path)?;
-                }
-            }
         }
 
         Ok(())
@@ -91,7 +80,7 @@ impl Backend for FSBackend {
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        data: &'a [u64],
+        data: &'a Treemap,
     ) -> Result<(), BackendError> {
         let path = self.directory.join(key);
         let mut file = OpenOptions::new()
@@ -100,7 +89,7 @@ impl Backend for FSBackend {
             .create(true)
             .open(&path)?;
         file.seek(SeekFrom::Start(0))?;
-        file.write_all(&bincode::serialize(data)?)?;
+        file.write_all(&data.serialize()?)?;
         Ok(())
     }
 
@@ -110,12 +99,12 @@ impl Backend for FSBackend {
         Ok(())
     }
 
-    fn load(&self) -> Result<Vec<(String, Vec<u64>)>, BackendError> {
-        let mut data: Vec<(String, Vec<u64>)> = vec![];
+    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError> {
+        let mut data: Vec<(String, Treemap)> = Vec::new();
         for r in std::fs::read_dir(&self.directory)? {
             let path = r?.path();
             let bytes = std::fs::read(&path)?;
-            let decoded: Vec<u64> = bincode::deserialize(&bytes[..])?;
+            let decoded: Treemap = Treemap::deserialize(&bytes[..])?;
             let key = path.file_name().unwrap().to_str().unwrap().to_owned();
             data.push((key, decoded));
         }
@@ -148,24 +137,24 @@ impl<T> Backend for TimedBackend<T>
 where
     T: Backend,
 {
-    fn save(
+    fn save<'a>(
         &self,
-        facets: impl IntoIterator<Item = (String, Vec<u64>)>,
-        delete_missing: bool,
+        facets: impl IntoIterator<Item = (&'a str, &'a Treemap)>,
+        clear: bool,
     ) -> Result<(), BackendError> {
         timed_cb(
-            || self.inner.save(facets, delete_missing),
-            |d| info!("Saved in {:?}", d),
+            || self.inner.save(facets, clear),
+            |d| info!("Saved all facets in {:?}", d),
         )
     }
 
     fn save_facet<'a>(
         &self,
         key: &'a str,
-        data: &'a [u64],
+        facet: &'a Treemap,
     ) -> Result<(), BackendError> {
         timed_cb(
-            || self.inner.save_facet(key, data),
+            || self.inner.save_facet(key, facet),
             |d| info!("Saved facet {} in {:?}", key, d),
         )
     }
@@ -177,19 +166,25 @@ where
         )
     }
 
-    fn load(&self) -> Result<Vec<(String, Vec<u64>)>, BackendError> {
-        timed_cb(|| self.inner.load(), |d| info!("Loaded in {:?}", d))
+    fn load(&self) -> Result<Vec<(String, Treemap)>, BackendError> {
+        timed_cb(
+            || self.inner.load(),
+            |d| info!("Loaded all facets in {:?}", d),
+        )
     }
 
     fn clear(&self) -> Result<(), BackendError> {
-        timed_cb(|| self.inner.clear(), |d| info!("Cleared in {:?}", d))
+        timed_cb(
+            || self.inner.clear(),
+            |d| info!("Cleared storage backend in {:?}", d),
+        )
     }
 }
 
 pub fn import_csv(
     input: &mut dyn std::io::Read,
     backend: &impl Backend,
-    delete_missing: bool,
+    clear: bool,
 ) -> Result<(), BackendError> {
     let mut rdr = csv::Reader::from_reader(input);
 
@@ -198,7 +193,7 @@ pub fn import_csv(
         .into_iter()
         .enumerate()
         .collect::<Vec<(usize, &str)>>()[1..headers.len()];
-    let mut data: HashMap<String, Vec<u64>> = HashMap::new();
+    let mut data: HashMap<String, Treemap> = HashMap::new();
 
     for row in rdr.records() {
         let record = row?;
@@ -220,15 +215,15 @@ pub fn import_csv(
 
             for key in keys {
                 match data.entry(key) {
-                    Entry::Occupied(e) => e.into_mut().push(*value),
+                    Entry::Occupied(e) => e.into_mut().add(*value),
                     Entry::Vacant(e) => {
-                        e.insert(vec![*value]);
+                        e.insert(Treemap::of(&[*value]));
                     }
                 };
             }
         }
     }
 
-    backend.save(data, delete_missing)?;
+    backend.save(data.iter().map(|(k, v)| (k.as_ref(), v)), clear)?;
     Ok(())
 }

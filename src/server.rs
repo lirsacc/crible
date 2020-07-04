@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use croaring::Treemap;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use warp::reply::Reply;
@@ -322,9 +323,9 @@ where
             let (should_save, data) = {
                 let index = index.read().await;
                 if index.has_changed_since(last_save) {
-                    let data: Vec<(String, Vec<u64>)> = index
+                    let data: Vec<(String, Treemap)> = index
                         .iter_facets()
-                        .map(|(k, f)| (k.clone(), f.to_vec()))
+                        .map(|(k, f)| (k.clone(), f.clone()))
                         .collect();
                     (true, Some(data))
                 } else {
@@ -337,7 +338,9 @@ where
                 // Why is this clone required here?
                 let backend = backend.clone();
                 match tokio::task::spawn_blocking(move || {
-                    backend.as_ref().save(data, true)
+                    backend
+                        .as_ref()
+                        .save(data.iter().map(|(k, v)| (k.as_ref(), v)), true)
                 })
                 .await
                 {

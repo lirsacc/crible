@@ -1,55 +1,63 @@
 use std::sync::Arc;
 
 use croaring::Bitmap;
-use log::{error, info};
-use tokio::sync::{Mutex, RwLock};
-use warp::reply::Reply;
+use log::error;
+use warp::reply::{Reply, Response};
 use warp::Filter;
 
-use crate::backend::Backend;
+use crate::error::CribleError;
 use crate::expressions::parse_expression;
-use crate::search_index::{
-    FacetStats, GlobalStats, SearchIndex, SearchIndexError,
-};
+use crate::index::{Index, Stats};
+
+// #[derive(Serialize, Debug)]
+// pub struct FacetStats<'a> {
+//     name: &'a str,
+//     stats: &'a Stats,
+// }
 
 #[derive(Serialize, Debug)]
 pub struct StatsResponse<'a> {
-    global: &'a GlobalStats,
-    facets: Option<&'a Vec<FacetStats>>,
+    len: usize,
+    stats: &'a Stats,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct StatsQuery {
-    full: Option<bool>,
-}
+// #[derive(Deserialize, Debug)]
+// pub struct StatsQuery {
+//     full: Option<bool>,
+// }
 
 #[derive(Deserialize, Debug)]
 pub struct SearchQuery {
     query: String,
 }
 
-#[derive(Default)]
-pub struct Cache {
-    pub stats: Option<(GlobalStats, Vec<FacetStats>)>,
-}
+// TODO: Error handling.
+// TODO: Clean up all the `into_response()` uses.
 
 pub async fn facets_handler(
-    state: Arc<RwLock<SearchIndex>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let index = state.read().await;
-    let facets: Vec<&str> =
-        index.iter_facets().map(|(k, _)| k.as_ref()).collect();
-    Ok(warp::reply::json(&facets))
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.facet_ids() {
+        Ok(facets) => Ok(warp::reply::json(&facets).into_response()),
+        Err(err) => {
+            error!("Failed to load facets, error: {:?}", err);
+            Ok(warp::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
 }
 
 pub async fn facet_stats_handler(
     facet: String,
-    state: Arc<RwLock<SearchIndex>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    match state.read().await.facet_stats(&facet) {
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.facet_stats(&facet) {
         Ok(stats) => Ok(warp::reply::json(&stats).into_response()),
-        Err(SearchIndexError::FacetDoesNotExist(_)) => {
-            Ok(warp::http::StatusCode::NOT_FOUND.into_response())
+        Err(CribleError::FacetDoesNotExist(_)) => {
+            Ok(warp::reply::with_status(
+                format!("Facet {} does not exist", facet),
+                warp::http::StatusCode::BAD_REQUEST,
+            )
+            .into_response())
         }
         Err(err) => {
             error!(
@@ -64,34 +72,38 @@ pub async fn facet_stats_handler(
 pub async fn add_handler(
     facet: String,
     value: u32,
-    state: Arc<RwLock<SearchIndex>>,
-    cache: Arc<Mutex<Cache>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    state.write().await.add(&facet, value);
-    let mut cache_inst = cache.lock().await;
-    cache_inst.stats = None;
-    Ok("")
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.add(&facet, value) {
+        Ok(_) => Ok(warp::reply::json(&"").into_response()),
+        Err(err) => {
+            error!(
+                "Failed to add value {} to facet {}, error: {:?}",
+                value, facet, err
+            );
+            Ok(warp::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
 }
 
 pub async fn remove_handler(
     facet: String,
     value: u32,
-    state: Arc<RwLock<SearchIndex>>,
-    cache: Arc<Mutex<Cache>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    match state.write().await.remove(&facet, value) {
-        Ok(_) => {
-            let mut cache_inst = cache.lock().await;
-            cache_inst.stats = None;
-            Ok("".into_response())
-        }
-        Err(SearchIndexError::FacetDoesNotExist(_)) => {
-            Ok(warp::http::StatusCode::NOT_FOUND.into_response())
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.add(&facet, value) {
+        Ok(_) => Ok(warp::reply::json(&"").into_response()),
+        Err(CribleError::FacetDoesNotExist(_)) => {
+            Ok(warp::reply::with_status(
+                format!("Facet {} does not exist", facet),
+                warp::http::StatusCode::BAD_REQUEST,
+            )
+            .into_response())
         }
         Err(err) => {
             error!(
-                "Failed to load facet stats for facet {}, error: {:?}",
-                facet, err
+                "Failed to remove value {} from facet {}, error: {:?}",
+                value, facet, err
             );
             Ok(warp::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
@@ -100,179 +112,167 @@ pub async fn remove_handler(
 
 pub async fn deindex_handler(
     value: u32,
-    state: Arc<RwLock<SearchIndex>>,
-    cache: Arc<Mutex<Cache>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    state.write().await.deindex(value);
-    let mut cache_inst = cache.lock().await;
-    cache_inst.stats = None;
-    Ok("")
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.deindex(value) {
+        Ok(_) => Ok(warp::reply::json(&"").into_response()),
+        Err(err) => {
+            error!("Failed to deindex value {}, error: {:?}", value, err);
+            Ok(warp::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
 }
 
 pub async fn drop_facet_handler(
     facet: String,
-    state: Arc<RwLock<SearchIndex>>,
-    cache: Arc<Mutex<Cache>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    state.write().await.drop_facet(&facet);
-    let mut cache_inst = cache.lock().await;
-    cache_inst.stats = None;
-    Ok("")
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match index.drop_facet(&facet) {
+        Ok(_) => Ok(warp::reply::json(&"").into_response()),
+        Err(CribleError::FacetDoesNotExist(_)) => {
+            Ok(warp::reply::with_status(
+                format!("Facet {} does not exist", facet),
+                warp::http::StatusCode::BAD_REQUEST,
+            )
+            .into_response())
+        }
+        Err(err) => {
+            error!("Failed to drop facet {}, error: {:?}", facet, err);
+            Ok(warp::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
 }
 
-pub async fn search_handler(
-    state: Arc<RwLock<SearchIndex>>,
+pub fn apply_expr(
+    index: Arc<Box<dyn Index + Send + Sync>>,
     query: SearchQuery,
-) -> Result<impl warp::Reply, warp::Rejection> {
+) -> Result<Bitmap, Response> {
     match parse_expression(&query.query) {
-        Ok(expr) => {
-            match state.read().await.apply_expression(expr.simplify_via_bdd())
-            {
-                Ok(tm) => Ok(warp::reply::json(&tm.to_vec()).into_response()),
-                Err(err) => Ok(warp::reply::with_status(
-                    format!("{}", err),
-                    warp::http::StatusCode::BAD_REQUEST,
-                )
-                .into_response()),
-            }
-        }
-        Err(err) => Ok(warp::reply::with_status(
+        Ok(expr) => match index.apply(expr.simplify_via_bdd()) {
+            Ok(x) => Ok(x),
+            Err(err) => match err {
+                CribleError::FacetDoesNotExist(_) => {
+                    Err(warp::reply::with_status(
+                        format!("{}", err),
+                        warp::http::StatusCode::BAD_REQUEST,
+                    )
+                    .into_response())
+                }
+                _ => {
+                    error!(
+                        "Failed to compute query {:?}, error: {:?}",
+                        query, err
+                    );
+                    Err(warp::http::StatusCode::INTERNAL_SERVER_ERROR
+                        .into_response())
+                }
+            },
+        },
+        Err(err) => Err(warp::reply::with_status(
             format!("{}", err),
             warp::http::StatusCode::BAD_REQUEST,
         )
         .into_response()),
+    }
+}
+
+pub async fn search_handler(
+    index: Arc<Box<dyn Index + Send + Sync>>,
+    query: SearchQuery,
+) -> Result<impl Reply, std::convert::Infallible> {
+    match apply_expr(index, query) {
+        Ok(bm) => Ok(warp::reply::json(&bm.to_vec()).into_response()),
+        Err(error_response) => Ok(error_response),
     }
 }
 
 pub async fn count_handler(
-    state: Arc<RwLock<SearchIndex>>,
+    index: Arc<Box<dyn Index + Send + Sync>>,
     query: SearchQuery,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    match parse_expression(&query.query) {
-        Ok(expr) => {
-            match state.read().await.apply_expression(expr.simplify_via_bdd())
-            {
-                Ok(tm) => {
-                    Ok(warp::reply::json(&tm.cardinality()).into_response())
-                }
-                Err(err) => Ok(warp::reply::with_status(
-                    format!("{}", err),
-                    warp::http::StatusCode::BAD_REQUEST,
-                )
-                .into_response()),
-            }
-        }
-        Err(err) => Ok(warp::reply::with_status(
-            format!("{}", err),
-            warp::http::StatusCode::BAD_REQUEST,
-        )
-        .into_response()),
+) -> Result<impl Reply, std::convert::Infallible> {
+    match apply_expr(index, query) {
+        Ok(bm) => Ok(warp::reply::json(&bm.cardinality()).into_response()),
+        Err(error_response) => Ok(error_response),
     }
 }
 
 pub async fn stats_handler(
-    state: Arc<RwLock<SearchIndex>>,
-    cache: Arc<Mutex<Cache>>,
-    query: StatsQuery,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    let index = state.read().await;
-
-    let mut cache_inst = cache.lock().await;
-
-    if cache_inst.stats.is_none() {
-        let global = index.stats();
-        let facets = index
-            .iter_facets()
-            .map(|(k, _)| index.facet_stats(k).unwrap())
-            .collect();
-        cache_inst.stats = Some((global, facets));
-    }
-
-    let (global, facets) = cache_inst.stats.as_ref().unwrap();
-
+    index: Arc<Box<dyn Index + Send + Sync>>,
+) -> Result<impl Reply, std::convert::Infallible> {
+    // TODO: Add back facet stats and maybe cache.
     Ok(warp::reply::json(&StatsResponse {
-        global,
-        facets: if query.full.unwrap_or(false) {
-            Some(facets)
-        } else {
-            None
-        },
-    }))
+        len: index.len().unwrap(),
+        stats: &index.stats().unwrap(),
+    })
+    .into_response())
 }
 
 pub async fn run_server(
     addr: std::net::SocketAddr,
-    state: Arc<RwLock<SearchIndex>>,
+    index: Arc<Box<dyn Index + Send + Sync>>,
 ) {
-    let cache = Arc::new(Mutex::new(Cache::default()));
-    let state_filter = warp::any().map(move || state.clone());
-    let cache_filter = warp::any().map(move || cache.clone());
+    let index_filter = warp::any().map(move || index.clone());
 
-    let are_you_there = warp::get()
-        .and(warp::path("are_you_there"))
+    let are_you_there = warp::path("are_you_there")
         .and(warp::path::end())
+        .and(warp::get())
         .map(|| "Yes.");
 
-    let stats = warp::get()
-        .and(warp::path("stats"))
+    let stats = warp::path("stats")
         .and(warp::path::end())
-        .and(state_filter.clone())
-        .and(cache_filter.clone())
-        .and(warp::query::<StatsQuery>())
+        .and(warp::get())
+        .and(index_filter.clone())
+        // .and(warp::query::<StatsQuery>())
         .and_then(stats_handler);
 
-    let facet_stats = warp::get()
-        .and(warp::path!("stats" / String))
+    let facet_stats = warp::path!("stats" / String)
         .and(warp::path::end())
-        .and(state_filter.clone())
+        .and(warp::get())
+        .and(index_filter.clone())
         .and_then(facet_stats_handler);
 
-    let facets = warp::get()
-        .and(warp::path("facets"))
+    let facets = warp::path("facets")
         .and(warp::path::end())
-        .and(state_filter.clone())
+        .and(warp::get())
+        .and(index_filter.clone())
         .and_then(facets_handler);
 
-    let search = warp::get()
-        .and(warp::path("search"))
+    let search = warp::path("search")
         .and(warp::path::end())
-        .and(state_filter.clone())
+        .and(warp::get())
+        .and(index_filter.clone())
         .and(warp::query::<SearchQuery>())
         .and_then(search_handler);
 
-    let count = warp::get()
-        .and(warp::path("count"))
+    let count = warp::path("count")
         .and(warp::path::end())
-        .and(state_filter.clone())
+        .and(warp::get())
+        .and(index_filter.clone())
         .and(warp::query::<SearchQuery>())
         .and_then(count_handler);
 
-    let add = warp::post()
-        .and(warp::path!("add" / String / u32))
+    let add = warp::path!("add" / String / u32)
         .and(warp::path::end())
-        .and(state_filter.clone())
-        .and(cache_filter.clone())
+        .and(warp::post())
+        .and(index_filter.clone())
         .and_then(add_handler);
 
-    let remove = warp::post()
-        .and(warp::path!("remove" / String / u32))
+    let remove = warp::path!("remove" / String / u32)
         .and(warp::path::end())
-        .and(state_filter.clone())
-        .and(cache_filter.clone())
+        .and(warp::post())
+        .and(index_filter.clone())
         .and_then(remove_handler);
 
-    let deindex = warp::post()
-        .and(warp::path!("deindex" / u32))
+    let deindex = warp::path!("deindex" / u32)
         .and(warp::path::end())
-        .and(state_filter.clone())
-        .and(cache_filter.clone())
+        .and(warp::post())
+        .and(index_filter.clone())
         .and_then(deindex_handler);
 
-    let drop_facet = warp::post()
-        .and(warp::path!("drop" / String))
+    let drop_facet = warp::path!("drop" / String)
         .and(warp::path::end())
-        .and(state_filter.clone())
-        .and(cache_filter.clone())
+        .and(warp::post())
+        .and(index_filter.clone())
         .and_then(drop_facet_handler);
 
     let api = are_you_there
@@ -293,6 +293,7 @@ pub async fn run_server(
 // used in a background task while the server is running.
 //
 // TODO: This should be optimised / made safer.
+// TODO: Re-add change detection.
 //
 // Known issues:
 //
@@ -309,56 +310,32 @@ pub async fn run_server(
 // - The spawned task could get interupted mid-write which could corrupt the
 //    backend. Maybe a transactional~ish process would work better? E.g. write
 //    updates in a temp directory and move everything at the end.
-pub fn run_writer<B>(index: Arc<RwLock<SearchIndex>>, backend: Arc<B>)
-where
-    B: Backend + Send + Sync + 'static,
-{
+pub fn run_writer(
+    index: Arc<Box<dyn Index + Send + Sync>>,
+    every: std::time::Duration,
+    max_retries: usize,
+) {
     tokio::spawn(async move {
-        let mut last_save = std::time::Instant::now();
         let mut retries: usize = 0;
-        let max_retries: usize = 3;
         loop {
-            tokio::time::delay_for(std::time::Duration::from_millis(1000))
-                .await;
-            let (should_save, data) = {
-                let index = index.read().await;
-                if index.has_changed_since(last_save) {
-                    let data: Vec<(String, Bitmap)> = index
-                        .iter_facets()
-                        .map(|(k, f)| (k.clone(), f.clone()))
-                        .collect();
-                    (true, Some(data))
-                } else {
-                    (false, None)
+            tokio::time::delay_for(every).await;
+            let index = index.clone();
+            match tokio::task::spawn_blocking(move || index.save()).await {
+                Ok(_) => {
+                    retries = 0;
                 }
-            };
-
-            if should_save {
-                let data = data.unwrap();
-                // Why is this clone required here?
-                let backend = backend.clone();
-                match tokio::task::spawn_blocking(move || {
-                    backend
-                        .as_ref()
-                        .save(data.iter().map(|(k, v)| (k.as_ref(), v)), true)
-                })
-                .await
-                {
-                    Ok(_) => {
-                        last_save = std::time::Instant::now();
-                        retries = 0;
-                        info!("Saved data");
+                Err(err) => {
+                    // TODO: Should have a better solution than panicking here.
+                    if retries >= max_retries {
+                        panic!(format!(
+                            "Failed to save data {} times. Original error: {}",
+                            retries, err
+                        ));
+                    } else {
+                        error!("Failed to save data (will retry {} times). Original error: {}", max_retries - retries, err);
+                        retries += 1;
                     }
-                    Err(err) => {
-                        // TODO: Should have a better solution than panicking here.
-                        if retries >= max_retries {
-                            panic!(format!("Failed to save data {} times. Original error: {}", retries, err));
-                        } else {
-                            error!("Failed to save data (will retry {} times). Original error: {}", max_retries - retries, err);
-                            retries += 1;
-                        }
-                    }
-                };
+                }
             }
         }
     });

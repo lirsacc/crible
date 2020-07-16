@@ -1,6 +1,10 @@
 /target
 
 # Test stuff
-data.csv
-data-full.csv
+*.csv
+*.bin
+!test-data*.csv
+*.txt
 *.db
+*.sqlite
+crible-data

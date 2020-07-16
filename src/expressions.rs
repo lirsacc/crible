@@ -1,5 +1,10 @@
+use std::collections::HashMap;
+
 use boolean_expression::Expr;
+use croaring::Bitmap;
 use pest::Parser;
+
+use crate::error::CribleError;
 
 #[derive(Parser)]
 #[grammar = "logic.pest"]
@@ -25,10 +30,7 @@ fn parse_pair(pair: Pair) -> Expr<String> {
             let lhs = parse_pair(inner.next().unwrap());
             match inner.next() {
                 None => lhs,
-                Some(_) => Expr::Or(
-                    Box::new(lhs),
-                    Box::new(parse_pair(inner.next().unwrap())),
-                ),
+                Some(_) => Expr::or(lhs, parse_pair(inner.next().unwrap())),
             }
         }
         Rule::and_term => {
@@ -36,25 +38,49 @@ fn parse_pair(pair: Pair) -> Expr<String> {
             let lhs = parse_pair(inner.next().unwrap());
             match inner.next() {
                 None => lhs,
-                Some(_) => Expr::And(
-                    Box::new(lhs),
-                    Box::new(parse_pair(inner.next().unwrap())),
-                ),
+                Some(_) => Expr::and(lhs, parse_pair(inner.next().unwrap())),
             }
         }
         Rule::factor => {
             let mut inner = pair.into_inner();
             let leader = inner.next().unwrap();
             match leader.as_rule() {
-                Rule::not => {
-                    Expr::Not(Box::new(parse_pair(inner.next().unwrap())))
-                }
+                Rule::not => Expr::not(parse_pair(inner.next().unwrap())),
                 _ => parse_pair(leader),
             }
         }
         Rule::primary => parse_pair(pair.into_inner().next().unwrap()),
         Rule::token => Expr::Terminal(pair.as_str().to_owned()),
         _ => unreachable!(),
+    }
+}
+
+pub fn apply_expression(
+    root: &Bitmap,
+    facets: &HashMap<String, Bitmap>,
+    expr: Expr<String>,
+) -> Result<Bitmap, CribleError> {
+    match expr {
+        Expr::Const(_) => unreachable!(),
+        Expr::Not(e) => Ok(root.andnot(&apply_expression(root, facets, *e)?)),
+        Expr::Terminal(key) => match facets.get(&key) {
+            Some(x) => Ok(x.clone()),
+            None => Err(CribleError::FacetDoesNotExist(key.to_owned())),
+        },
+        Expr::And(lhs, rhs) => Ok(match (*lhs, *rhs) {
+            (Expr::Not(x), Expr::Not(y)) => root.andnot(
+                &apply_expression(root, facets, *x)?
+                    .or(&apply_expression(root, facets, *y)?),
+            ),
+            (Expr::Not(x), y) | (y, Expr::Not(x)) => {
+                apply_expression(root, facets, y)?
+                    .andnot(&apply_expression(root, facets, *x)?)
+            }
+            (x, y) => apply_expression(root, facets, x)?
+                .and(&apply_expression(root, facets, y)?),
+        }),
+        Expr::Or(lhs, rhs) => Ok(apply_expression(root, facets, *lhs)?
+            .or(&apply_expression(root, facets, *rhs)?)),
     }
 }
 

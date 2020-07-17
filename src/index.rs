@@ -6,9 +6,10 @@ use std::sync::{Arc, RwLock};
 use boolean_expression::Expr;
 use croaring::Bitmap;
 use log::info;
+use rusqlite::params;
 
 use crate::error::{CribleError, Result};
-use crate::expressions::apply_expression;
+use crate::expressions::{apply_expression, to_sqlite_filter};
 
 #[derive(Debug, Serialize)]
 pub struct Stats {
@@ -381,6 +382,200 @@ impl Index for FSIndex {
 
     fn apply(&self, expr: Expr<String>) -> Result<Bitmap> {
         self.inner.apply(expr)
+    }
+}
+
+// TODO: Use r2d2 to make this Send + Sync for use in warp. I think there should
+// be another way to do this without a connection pool.
+pub struct SQLiteIndex(r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>);
+
+impl SQLiteIndex {
+    pub fn init(
+        pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
+    ) -> Result<Self> {
+        let conn = pool.get()?;
+        conn.execute(
+            "create table if not exists search_index (value unsigned int, facet varchar(64));",
+            rusqlite::NO_PARAMS
+        )?;
+        conn.execute(
+            "create unique index if not exists value_facet_uq on search_index (facet, value);",
+            rusqlite::NO_PARAMS
+        )?;
+        conn.execute(
+            "create index if not exists facet_idx on search_index (facet);",
+            rusqlite::NO_PARAMS,
+        )?;
+        conn.execute(
+            "create index if not exists value_idx on search_index (value);",
+            rusqlite::NO_PARAMS,
+        )?;
+        Ok(Self(pool))
+    }
+}
+
+impl Index for SQLiteIndex {
+    fn len(&self) -> Result<usize> {
+        let conn = self.0.get()?;
+        let res: isize = conn.query_row(
+            "select count(distinct facet) from search_index;",
+            rusqlite::NO_PARAMS,
+            |row| row.get(0),
+        )?;
+        Ok(res as usize)
+    }
+
+    fn stats(&self) -> Result<Stats> {
+        let conn = self.0.get()?;
+        conn.query_row_and_then(
+            "select count(distinct value), max(value), min(value) from search_index;",
+            rusqlite::NO_PARAMS,
+            |row| {
+                let c: i64 = row.get(0)?;
+                Ok(
+                    Stats {
+                        cardinality: c as u64,
+                        maximum: row.get(1)?,
+                        minimum: row.get(2)?,
+                    }
+                )
+            },
+        )
+    }
+
+    fn facet_stats(&self, facet_id: &str) -> Result<Stats> {
+        let conn = self.0.get()?;
+        conn.query_row_and_then(
+            "select count(distinct value), max(value), min(value) from search_index where facet = ?1;",
+            &[facet_id],
+            |row| {
+                let c: i64 = row.get(0)?;
+                if c > 0 {
+                    Ok(Stats {
+                        cardinality: c as u64,
+                        maximum: row.get(1)?,
+                        minimum: row.get(2)?,
+                    })
+                } else {
+                    Err(CribleError::FacetDoesNotExist(facet_id.to_owned()))
+                }
+            },
+        )
+    }
+
+    fn facet_ids(&self) -> Result<Vec<String>> {
+        Ok(self
+            .0
+            .get()?
+            .prepare("select distinct facet from search_index;")?
+            .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
+            .map(|x| x.unwrap())
+            .collect())
+    }
+
+    fn add(&self, facet_id: &str, value: u32) -> Result<()> {
+        let conn = self.0.get()?;
+        conn.execute(
+            "insert or ignore into search_index (value, facet) values (?1, ?2);",
+            params![value, facet_id]
+        )?;
+        Ok(())
+    }
+
+    fn remove(&self, facet_id: &str, value: u32) -> Result<()> {
+        let conn = self.0.get()?;
+        conn.execute(
+            "delete from search_index where value = ?1 and facet = ?2;",
+            params![value, facet_id],
+        )?;
+        Ok(())
+    }
+
+    fn deindex(&self, value: u32) -> Result<()> {
+        let conn = self.0.get()?;
+        conn.execute(
+            "delete from search_index where value = ?1;",
+            params![value],
+        )?;
+        Ok(())
+    }
+
+    fn drop_facet(&self, facet_id: &str) -> Result<()> {
+        let conn = self.0.get()?;
+        conn.execute(
+            "delete from search_index where facet = ?1;",
+            params![facet_id],
+        )?;
+        Ok(())
+    }
+
+    fn set_facet(&self, facet_id: &str, bitmap: Bitmap) -> Result<()> {
+        let mut conn = self.0.get()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "delete from search_index where facet = ?1;",
+            params![facet_id],
+        )?;
+        for value in bitmap.iter() {
+            tx.execute(
+                "insert into search_index (value, facet) values (?1, ?2);",
+                params![value, facet_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn set_many(&self, bitmaps: HashMap<String, Bitmap>) -> Result<()> {
+        let mut conn = self.0.get()?;
+        let tx = conn.transaction()?;
+        // TODO: Would prefer to use the params.
+        let facets_in = bitmaps
+            .keys()
+            .map(|x| format!("'{}'", x))
+            .collect::<Vec<String>>()
+            .join(", ");
+        tx.execute(
+            &format!(
+                "delete from search_index where facet in ({});",
+                facets_in
+            ),
+            rusqlite::NO_PARAMS,
+        )?;
+        for (facet_id, values) in bitmaps {
+            for value in values.iter() {
+                tx.execute(
+                    "insert into search_index (value, facet) values (?1, ?2);",
+                    params![value, facet_id],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<()> {
+        let conn = self.0.get()?;
+        conn.execute("delete from search_index;", rusqlite::NO_PARAMS)?;
+        Ok(())
+    }
+
+    fn save(&self) -> Result<()> {
+        Ok(())
+    }
+
+    fn apply(&self, expr: Expr<String>) -> Result<Bitmap> {
+        let conn = self.0.get()?;
+        let query: String = to_sqlite_filter(expr)?;
+        let values: Vec<u32> = conn
+            .prepare(&format!(
+                "select value from search_index where {}",
+                query
+            ))?
+            .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
+            .map(|x| x.unwrap())
+            .collect();
+        Ok(Bitmap::of(&values))
     }
 }
 

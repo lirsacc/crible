@@ -16,6 +16,10 @@ pub enum CribleError {
     IntegerParsingError(#[from] std::num::ParseIntError),
     #[error("io error")]
     IOError(#[from] std::io::Error),
+    #[error("sqlite error")]
+    SQLiteError(#[from] rusqlite::Error),
+    #[error("sqlite connection error")]
+    SQLiteConnectionError(#[from] r2d2::Error),
 }
 
 impl<T> From<PoisonError<T>> for CribleError {

@@ -17,13 +17,16 @@ use log::{info, warn};
 use structopt::StructOpt;
 
 use crate::error::CribleError;
-use crate::index::{import_csv, FSIndex, Index, MemoryIndex, VerboseIndex};
+use crate::index::{
+    import_csv, FSIndex, Index, MemoryIndex, SQLiteIndex, VerboseIndex,
+};
 use crate::server::{run_server, run_writer};
 
 #[derive(Debug)]
 enum IndexDef {
     Memory,
     FS(std::path::PathBuf),
+    SQLite(std::path::PathBuf),
 }
 
 impl FromStr for IndexDef {
@@ -45,6 +48,8 @@ impl FromStr for IndexDef {
                     }
                     ("fs", None) | ("fs", Some(&"")) => Ok(IndexDef::FS("crible-data".into())),
                     ("fs", Some(x)) => Ok(IndexDef::FS(x.into())),
+                    ("sqlite", None) | ("sqlite", Some(&"")) => Ok(IndexDef::SQLite("crible.sqlite".into())),
+                    ("sqlite", Some(x)) => Ok(IndexDef::SQLite(x.into())),
                     (x, _) => Err(format!("Unknown index protocol {}", x)),
                 }
             }
@@ -77,6 +82,16 @@ fn make_index(
                 Box::new(VerboseIndex::new(inner))
             } else {
                 Box::new(inner)
+            })
+        }
+        IndexDef::SQLite(file) => {
+            let pool = r2d2::Pool::new(
+                r2d2_sqlite::SqliteConnectionManager::file(file),
+            )?;
+            Ok(if verbose {
+                Box::new(VerboseIndex::new(SQLiteIndex::init(pool)?))
+            } else {
+                Box::new(SQLiteIndex::init(pool)?)
             })
         }
     }

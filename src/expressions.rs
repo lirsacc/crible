@@ -84,6 +84,25 @@ pub fn apply_expression(
     }
 }
 
+// TODO: Detect missing facets.
+pub fn to_sqlite_filter(expr: Expr<String>) -> Result<String, CribleError> {
+    match expr {
+        Expr::Const(_) => unreachable!(),
+        Expr::Not(e) => Ok(format!("~({})", to_sqlite_filter(*e)?)),
+        Expr::Terminal(key) => Ok(format!("facet = '{}'", key)),
+        Expr::And(lhs, rhs) => Ok(format!(
+            "({}) and ({})",
+            to_sqlite_filter(*lhs)?,
+            to_sqlite_filter(*rhs)?
+        )),
+        Expr::Or(lhs, rhs) => Ok(format!(
+            "({}) or ({})",
+            to_sqlite_filter(*lhs)?,
+            to_sqlite_filter(*rhs)?
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

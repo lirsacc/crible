@@ -1,0 +1,32 @@
+[package]
+name = "crible"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.52"
+axum = "0.4.8"
+base64 = "0.13.0"
+color-eyre = "0.6.1"
+croaring = "0.5.1"
+eyre = "0.6.7"
+nom = "7.1.0"
+savefile = "0.10.1"
+savefile-derive = "0.10.1"
+serde = "1.0.136"
+serde_derive = "1.0.136"
+serde_json = "1.0.79"
+structopt = "0.3.26"
+thiserror = "1.0.30"
+tokio = {version = "1.17.0", features = ["full"] }
+tower = "0.4.12"
+tower-http = { version = "0.2.4", features = ["trace", "request-id", "catch-panic"] }
+tracing = "0.1.32"
+tracing-subscriber = {version = "0.3.9", features = ["time", "env-filter"] }
+ulid = "0.5.0"
+url = "2.2.2"
+
+[dev-dependencies]
+rstest = "0.12.0"

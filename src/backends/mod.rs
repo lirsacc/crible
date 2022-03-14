@@ -30,7 +30,9 @@ pub enum BackendOptions {
     Redis { url: url::Url, key: Option<String> },
 }
 
-fn single_path_from_url(url: &url::Url) -> Result<Option<std::path::PathBuf>, eyre::Report> {
+fn single_path_from_url(
+    url: &url::Url,
+) -> Result<Option<std::path::PathBuf>, eyre::Report> {
     match (url.host(), url.path()) {
         (None, "") => Ok(None),
         (Some(host), "") => match host {
@@ -74,7 +76,9 @@ impl FromStr for BackendOptions {
 }
 
 impl BackendOptions {
-    pub fn build(&self) -> Result<Box<dyn Backend + Send + Sync>, eyre::Report> {
+    pub fn build(
+        &self,
+    ) -> Result<Box<dyn Backend + Send + Sync>, eyre::Report> {
         Ok(match self {
             Self::Memory => Box::new(MemoryBackend::default()),
             Self::Bin(p) => Box::new(match p {
@@ -85,7 +89,9 @@ impl BackendOptions {
                 None => JsonFSBackend::default(),
                 Some(x) => JsonFSBackend::new(x),
             }),
-            Self::Redis { url, key } => Box::new(RedisBackend::new(url, key.to_owned())?),
+            Self::Redis { url, key } => {
+                Box::new(RedisBackend::new(url, key.to_owned())?)
+            }
         })
     }
 }

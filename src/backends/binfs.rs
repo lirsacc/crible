@@ -19,7 +19,9 @@ struct BinFSFormat(HashMap<String, Vec<u8>>);
 /// Filesystem backend using an optimized binary format. This is not meant ot be
 /// interoperable and should be more compact that the JsonFSBackend format.s
 impl BinFSBackend {
-    pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(p: &T) -> Self {
+    pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(
+        p: &T,
+    ) -> Self {
         Self { path: p.into() }
     }
 
@@ -61,7 +63,8 @@ impl BinFSBackend {
     }
 
     pub fn deserialize(&self, bytes: &[u8]) -> Result<Index, eyre::Report> {
-        let data: BinFSFormat = savefile::load_from_mem(bytes, BIN_FS_FORMAT_VERSION)?;
+        let data: BinFSFormat =
+            savefile::load_from_mem(bytes, BIN_FS_FORMAT_VERSION)?;
         Ok(Index::new(
             data.0
                 .iter()
@@ -92,8 +95,6 @@ impl Backend for BinFSBackend {
 
 impl Default for BinFSBackend {
     fn default() -> Self {
-        Self {
-            path: "data.bin".into(),
-        }
+        Self { path: "data.bin".into() }
     }
 }

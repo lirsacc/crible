@@ -21,7 +21,10 @@ type IndexExt = Extension<IndexShared>;
 type BackendShared = Arc<RwLock<Box<dyn Backend + Send + Sync>>>;
 type BackendExt = Extension<BackendShared>;
 
-async fn flush(backend: BackendShared, index: IndexShared) -> Result<(), eyre::Report> {
+async fn flush(
+    backend: BackendShared,
+    index: IndexShared,
+) -> Result<(), eyre::Report> {
     let mut _backend = backend.as_ref().write().await;
     let _index = index.as_ref().read().await;
     _backend.dump(&_index).await
@@ -81,7 +84,9 @@ pub struct StatsResponse {
     properties: HashMap<String, Stats>,
 }
 
-pub async fn handler_stats(Extension(index): IndexExt) -> JSONAPIResult<StatsResponse> {
+pub async fn handler_stats(
+    Extension(index): IndexExt,
+) -> JSONAPIResult<StatsResponse> {
     let idx = index.as_ref().read().await;
     Ok((
         StatusCode::OK,
@@ -112,16 +117,10 @@ pub async fn handler_set(
     Extension(index): IndexExt,
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
-    let added = index
-        .as_ref()
-        .write()
-        .await
-        .set(&payload.property, payload.value);
-    let status_code = if added {
-        StatusCode::OK
-    } else {
-        StatusCode::NO_CONTENT
-    };
+    let added =
+        index.as_ref().write().await.set(&payload.property, payload.value);
+    let status_code =
+        if added { StatusCode::OK } else { StatusCode::NO_CONTENT };
     flush(backend, index).await?;
     Ok((status_code, ""))
 }
@@ -146,16 +145,10 @@ pub async fn handler_unset(
     Extension(index): IndexExt,
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
-    let deleted = index
-        .as_ref()
-        .write()
-        .await
-        .unset(&payload.property, payload.value);
-    let status_code = if deleted {
-        StatusCode::OK
-    } else {
-        StatusCode::NO_CONTENT
-    };
+    let deleted =
+        index.as_ref().write().await.unset(&payload.property, payload.value);
+    let status_code =
+        if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
     flush(backend, index).await?;
     Ok((status_code, ""))
 }
@@ -181,11 +174,8 @@ pub async fn handler_item_delete(
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
     let deleted = index.as_ref().write().await.remove_id(id);
-    let status_code = if deleted {
-        StatusCode::OK
-    } else {
-        StatusCode::NO_CONTENT
-    };
+    let status_code =
+        if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
     flush(backend, index).await?;
     Ok((status_code, ""))
 }

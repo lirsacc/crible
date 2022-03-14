@@ -44,27 +44,31 @@ fn parse_property(s: &str) -> IResult<&str, Expression> {
 
 fn parse_and_op(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
-    let (rest, _) = delimited(multispace1, tag_no_case("and"), multispace1)(rest)?;
+    let (rest, _) =
+        delimited(multispace1, tag_no_case("and"), multispace1)(rest)?;
     let (rest, rhs) = parse_term(rest)?;
     Ok((rest, Expression::and(lhs, rhs)))
 }
 
 fn parse_or_op(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
-    let (rest, _) = delimited(multispace1, tag_no_case("or"), multispace1)(rest)?;
+    let (rest, _) =
+        delimited(multispace1, tag_no_case("or"), multispace1)(rest)?;
     let (rest, rhs) = parse_term(rest)?;
     Ok((rest, Expression::or(lhs, rhs)))
 }
 
 fn parse_xor_op(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
-    let (rest, _) = delimited(multispace1, tag_no_case("xor"), multispace1)(rest)?;
+    let (rest, _) =
+        delimited(multispace1, tag_no_case("xor"), multispace1)(rest)?;
     let (rest, rhs) = parse_term(rest)?;
     Ok((rest, Expression::xor(lhs, rhs)))
 }
 
 fn parse_inverted(s: &str) -> IResult<&str, Expression> {
-    let (rest, _) = alt((terminated(tag_no_case("not"), multispace1), tag("!")))(s)?;
+    let (rest, _) =
+        alt((terminated(tag_no_case("not"), multispace1), tag("!")))(s)?;
     let (rest, expr) = cut(parse_term)(rest)?;
     Ok((rest, Expression::not(expr)))
 }
@@ -90,9 +94,7 @@ fn parse_expression(s: &str) -> IResult<&str, Expression> {
 }
 
 fn parse_root(s: &str) -> IResult<&str, Expression> {
-    map(delimited(multispace0, tag("*"), multispace0), |_| {
-        Expression::Root
-    })(s)
+    map(delimited(multispace0, tag("*"), multispace0), |_| Expression::Root)(s)
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -219,15 +221,24 @@ mod tests {
     #[case("!(foo)", Expression::not(Expression::property("foo")))]
     #[case(
         "foo and bar",
-        Expression::and(Expression::property("foo"), Expression::property("bar"))
+        Expression::and(
+            Expression::property("foo"),
+            Expression::property("bar")
+        )
     )]
     #[case(
         "foo or bar",
-        Expression::or(Expression::property("foo"), Expression::property("bar"))
+        Expression::or(
+            Expression::property("foo"),
+            Expression::property("bar")
+        )
     )]
     #[case(
         "foo xor bar",
-        Expression::xor(Expression::property("foo"), Expression::property("bar"))
+        Expression::xor(
+            Expression::property("foo"),
+            Expression::property("bar")
+        )
     )]
     #[case(
         "foo and not bar",
@@ -266,7 +277,10 @@ mod tests {
     #[case(
         "(foo and bar) or baz",
         Expression::or(
-            Expression::and(Expression::property("foo"), Expression::property("bar"),),
+            Expression::and(
+                Expression::property("foo"),
+                Expression::property("bar"),
+            ),
             Expression::property("baz"),
         )
     )]
@@ -274,10 +288,16 @@ mod tests {
         "foo and (bar or baz)",
         Expression::and(
             Expression::property("foo"),
-            Expression::or(Expression::property("bar"), Expression::property("baz"),),
+            Expression::or(
+                Expression::property("bar"),
+                Expression::property("baz"),
+            ),
         )
     )]
-    fn parse_valid_expression(#[case] value: &str, #[case] expected: Expression) {
+    fn parse_valid_expression(
+        #[case] value: &str,
+        #[case] expected: Expression,
+    ) {
         assert_eq!(Expression::parse(value).unwrap(), expected);
     }
 

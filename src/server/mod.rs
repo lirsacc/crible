@@ -12,8 +12,8 @@ use tower::make::Shared;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestId, RequestId};
 use tower_http::{
-    catch_panic::CatchPanicLayer, classify::ServerErrorsFailureClass, trace::TraceLayer,
-    ServiceBuilderExt,
+    catch_panic::CatchPanicLayer, classify::ServerErrorsFailureClass,
+    trace::TraceLayer, ServiceBuilderExt,
 };
 use tracing::Span;
 
@@ -111,8 +111,6 @@ struct RequestIdBuilder();
 
 impl MakeRequestId for RequestIdBuilder {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
-        Some(RequestId::new(
-            ulid::Ulid::new().to_string().parse().unwrap(),
-        ))
+        Some(RequestId::new(ulid::Ulid::new().to_string().parse().unwrap()))
     }
 }

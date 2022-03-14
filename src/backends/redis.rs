@@ -15,7 +15,10 @@ pub struct RedisBackend {
 }
 
 impl RedisBackend {
-    pub fn new(url: &url::Url, key: Option<String>) -> Result<Self, eyre::Report> {
+    pub fn new(
+        url: &url::Url,
+        key: Option<String>,
+    ) -> Result<Self, eyre::Report> {
         Ok(Self {
             client: redis::Client::open(url.to_string())?,
             key: key.unwrap_or_else(|| KEY_PREFIX.to_owned()),

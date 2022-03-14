@@ -24,9 +24,7 @@ pub fn setup_logging() {
 
 pub async fn shutdown_signal(ctx: &'static str) {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
 
     let terminate = async {
@@ -46,7 +44,10 @@ pub async fn shutdown_signal(ctx: &'static str) {
     }
 }
 
-pub fn add_extension(path: &mut std::path::PathBuf, extension: impl AsRef<std::path::Path>) {
+pub fn add_extension(
+    path: &mut std::path::PathBuf,
+    extension: impl AsRef<std::path::Path>,
+) {
     match path.extension() {
         Some(ext) => {
             let mut ext = ext.to_os_string();
@@ -60,6 +61,6 @@ pub fn add_extension(path: &mut std::path::PathBuf, extension: impl AsRef<std::p
 
 pub fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
     let mut pb = path.to_path_buf();
-    crate::utils::add_extension(&mut pb, "tmp");
+    add_extension(&mut pb, "tmp");
     pb
 }

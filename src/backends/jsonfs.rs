@@ -16,7 +16,9 @@ type JsonFSFormat = HashMap<String, String>;
 /// save as a Json object where each key is a property and each value is the
 /// based74 encoded serialized Roaring Bitmap.
 impl JsonFSBackend {
-    pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(p: &T) -> Self {
+    pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(
+        p: &T,
+    ) -> Self {
         Self { path: p.into() }
     }
 
@@ -58,7 +60,12 @@ impl JsonFSBackend {
         let data: JsonFSFormat = serde_json::from_slice(bytes)?;
         Ok(Index::new(
             data.iter()
-                .map(|(k, v)| (k.clone(), Bitmap::deserialize(&base64::decode(v).unwrap())))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        Bitmap::deserialize(&base64::decode(v).unwrap()),
+                    )
+                })
                 .collect(),
         ))
     }
@@ -85,8 +92,6 @@ impl Backend for JsonFSBackend {
 
 impl Default for JsonFSBackend {
     fn default() -> Self {
-        Self {
-            path: "data.json".into(),
-        }
+        Self { path: "data.json".into() }
     }
 }

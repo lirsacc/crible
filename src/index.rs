@@ -46,10 +46,7 @@ impl Index {
     }
 
     pub fn property_stats(&self) -> HashMap<String, Stats> {
-        self.0
-            .iter()
-            .map(|(k, v)| (k.to_owned(), v.into()))
-            .collect()
+        self.0.iter().map(|(k, v)| (k.to_owned(), v.into())).collect()
     }
 
     pub fn all_properties<'a>(&'a self) -> Vec<&'a str> {
@@ -62,13 +59,9 @@ impl Index {
         let mut x: Vec<&'a str> = self
             .0
             .iter()
-            .filter_map(|(k, v)| {
-                if v.contains(id) {
-                    Some(k.as_ref())
-                } else {
-                    None
-                }
-            })
+            .filter_map(
+                |(k, v)| if v.contains(id) { Some(k.as_ref()) } else { None },
+            )
             .collect();
         x.sort_unstable();
         x
@@ -121,21 +114,36 @@ impl Index {
         changed
     }
 
-    pub fn execute(&self, expression: &Expression) -> Result<Bitmap, IndexError> {
+    pub fn execute(
+        &self,
+        expression: &Expression,
+    ) -> Result<Bitmap, IndexError> {
         match expression {
             Expression::Root => Ok(self.root()),
             Expression::Property(name) => self
                 .get_property(name)
-                .ok_or_else(|| IndexError::PropertyDoesNotExist(name.to_owned()))
+                .ok_or_else(|| {
+                    IndexError::PropertyDoesNotExist(name.to_owned())
+                })
                 .cloned(),
-            Expression::And(l, r) => Ok(self.execute(l.as_ref())?.and(&self.execute(r.as_ref())?)),
-            Expression::Or(l, r) => Ok(self.execute(l.as_ref())?.or(&self.execute(r.as_ref())?)),
-            Expression::Xor(l, r) => Ok(self.execute(l.as_ref())?.xor(&self.execute(r.as_ref())?)),
+            Expression::And(l, r) => {
+                Ok(self.execute(l.as_ref())?.and(&self.execute(r.as_ref())?))
+            }
+            Expression::Or(l, r) => {
+                Ok(self.execute(l.as_ref())?.or(&self.execute(r.as_ref())?))
+            }
+            Expression::Xor(l, r) => {
+                Ok(self.execute(l.as_ref())?.xor(&self.execute(r.as_ref())?))
+            }
             Expression::Not(e) => Ok(self.root() - self.execute(e.as_ref())?),
         }
     }
 
-    pub fn cardinalities(&self, source: &Bitmap, prefix: Option<&str>) -> HashMap<String, u64> {
+    pub fn cardinalities(
+        &self,
+        source: &Bitmap,
+        prefix: Option<&str>,
+    ) -> HashMap<String, u64> {
         match prefix {
             None => (&self.0)
                 .iter()

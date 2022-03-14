@@ -41,11 +41,7 @@ enum Command {
     /// Run the server.
     Serve {
         /// Backend configuration url
-        #[clap(
-            long = "backend",
-            env = "CRIBLE_BACKEND",
-            default_value = "memory://"
-        )]
+        #[clap(long = "backend", required = true, env = "CRIBLE_BACKEND")]
         backend_options: BackendOptions,
 
         #[clap(short, long, env = "CRIBLE_PORT", default_value = "3000")]
@@ -62,11 +58,7 @@ enum Command {
     /// Execute a single query against the index.
     Query {
         /// Backend configuration url
-        #[clap(
-            long = "backend",
-            env = "CRIBLE_BACKEND",
-            default_value = "memory://"
-        )]
+        #[clap(long = "backend", required = true, env = "CRIBLE_BACKEND")]
         backend_options: BackendOptions,
 
         #[clap(long)]

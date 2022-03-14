@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::BufRead};
 
 use async_trait::async_trait;
 use croaring::Bitmap;
@@ -6,15 +6,15 @@ use croaring::Bitmap;
 use super::Backend;
 use crate::index::Index;
 
+// TODO: Use buffered read and writes.
+
 pub struct JsonFSBackend {
     path: std::path::PathBuf,
 }
 
-type JsonFSFormat = HashMap<String, String>;
-
 /// Filesystem backend using an easily cross-compatible json format. The data is
-/// saved as a Json object where each key is a property and each value is the
-/// based64 encoded serialized Roaring Bitmap.
+/// saved as a newline delimited Json file where each line is a pair [key,
+/// base64 encoded serializded bitmap].
 impl JsonFSBackend {
     pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(
         p: &T,
@@ -47,27 +47,26 @@ impl JsonFSBackend {
     }
 
     pub fn serialize(&self, index: &Index) -> Result<String, eyre::Report> {
-        Ok(serde_json::to_string(
-            &index
-                .0
-                .iter()
-                .map(|(k, v)| (k.to_owned(), base64::encode(v.serialize())))
-                .collect::<JsonFSFormat>(),
-        )?)
+        let mut res = String::new();
+        for (k, v) in index.0.iter() {
+            let element = (k, base64::encode(v.serialize()));
+            res.push_str(&serde_json::to_string(&element)?);
+            res.push('\n');
+        }
+        Ok(res)
     }
 
     pub fn deserialize(&self, bytes: &[u8]) -> Result<Index, eyre::Report> {
-        let data: JsonFSFormat = serde_json::from_slice(bytes)?;
-        Ok(Index::new(
-            data.iter()
-                .map(|(k, v)| {
-                    (
-                        k.clone(),
-                        Bitmap::deserialize(&base64::decode(v).unwrap()),
-                    )
-                })
-                .collect(),
-        ))
+        let mut res: HashMap<String, Bitmap> = HashMap::new();
+        for line in bytes.lines() {
+            let line = line?;
+            if line.is_empty() {
+                break;
+            }
+            let (k, v): (String, String) = serde_json::from_str(&line)?;
+            res.insert(k.to_owned(), Bitmap::deserialize(&base64::decode(v)?));
+        }
+        Ok(Index::new(res))
     }
 }
 

@@ -38,6 +38,8 @@ pub async fn run_server(
     let mut app = Router::new()
         .route("/", get(api::handler_home))
         .route("/query", post(api::handler_query))
+        .route("/count", post(api::handler_count))
+        .route("/bitmap", post(api::handler_bitmap))
         .route("/stats", get(api::handler_stats))
         .route("/item/:id", get(api::handler_item_get));
 

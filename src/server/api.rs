@@ -59,6 +59,10 @@ pub struct QueryResponse {
 }
 
 /// Run a query against the index.
+/// The result will include all unique elements matching the query and
+/// optionally (if include_cardinalities is provided and true) a map containing
+/// the cardinality of the intersection of the query and every property included
+/// in the index.
 pub async fn handler_query(
     Json(payload): Json<QueryPayload>,
     Extension(index): IndexExt,
@@ -76,6 +80,28 @@ pub async fn handler_query(
             },
         }),
     ))
+}
+
+/// Count elements matching a query.
+pub async fn handler_count(
+    Json(payload): Json<QueryPayload>,
+    Extension(index): IndexExt,
+) -> JSONAPIResult<u64> {
+    let expr = Expression::parse(&*payload.query)?;
+    let idx = index.as_ref().read().await;
+    let bm = idx.execute(&expr)?;
+    Ok((StatusCode::OK, Json(bm.cardinality())))
+}
+
+/// Get the base64 encoded Bitmap for a query.
+pub async fn handler_bitmap(
+    Json(payload): Json<QueryPayload>,
+    Extension(index): IndexExt,
+) -> JSONAPIResult<String> {
+    let expr = Expression::parse(&*payload.query)?;
+    let idx = index.as_ref().read().await;
+    let bm = idx.execute(&expr)?;
+    Ok((StatusCode::OK, Json(base64::encode(bm.serialize()))))
 }
 
 #[derive(Serialize)]

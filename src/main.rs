@@ -40,6 +40,7 @@ enum Command {
         #[structopt(short, long, default_value = "3000")]
         port: u16,
     },
+    /// Copy data from one backend to another
     Copy {
         /// Source backend configuration url
         #[structopt(long)]

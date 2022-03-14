@@ -10,14 +10,12 @@ pub fn set_env_var_default(name: &str, default: &str) {
 pub fn setup_logging() {
     set_env_var_default("RUST_LIB_BACKTRACE", "1");
     set_env_var_default("RUST_BACKTRACE", "1");
-    set_env_var_default("RUST_LOG", "crible=info,tower_http=info");
+    set_env_var_default("RUST_LOG", "crible=info");
 
     color_eyre::install().unwrap();
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap(),
-        ))
+        .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
         .init();
 }

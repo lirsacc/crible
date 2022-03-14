@@ -76,18 +76,22 @@ pub async fn run_server(
                         request_id = ?request.headers().get(HeaderName::from_static("x-request-id")).map_or("".to_owned(), |hv| hv.to_str().unwrap_or("").to_owned()),
                     )
                 })
-                .on_request(())
+                .on_request(|_: &Request<_>, _: &Span| tracing::debug!("request received"))
                 .on_body_chunk(())
                 .on_eos(())
-                .on_response(|res: &Response<_>, latency: Duration, span: &Span| {
-                    span.record("status", &res.status().as_u16());
-                    span.record("duration", &format!("{}μs", latency.as_micros()).as_str());
-                    tracing::info!("response sent")
+                .on_response(|res: &Response<_>, latency: Duration, _: &Span| {
+                    tracing::info!(
+                        status = &res.status().as_u16(),
+                        duration = &format!("{}μs", latency.as_micros()).as_str(),
+                        "response sent"
+                    )
                 })
                 .on_failure(
-                    |_err: ServerErrorsFailureClass, latency: Duration, span: &Span| {
-                        span.record("duration", &format!("{}μs", latency.as_micros()).as_str());
-                        tracing::debug!("response failed")
+                    |_err: ServerErrorsFailureClass, latency: Duration, _: &Span| {
+                        tracing::error!(
+                            duration = &format!("{}μs", latency.as_micros()).as_str(),
+                            "response failed"
+                        )
                     },
                 ),
         )

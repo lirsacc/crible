@@ -22,7 +22,8 @@ mod index;
 mod server;
 mod utils;
 
-use crate::backends::BackendOptions;
+use crate::backends::{Backend, BackendOptions};
+use crate::index::Index;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "crible")]
@@ -33,12 +34,16 @@ enum Command {
         #[structopt(long = "backend", default_value = "memory://")]
         backend_options: BackendOptions,
 
+        #[structopt(short, long, default_value = "3000")]
+        port: u16,
+
         /// Disable all write operations.
         #[structopt(long)]
         read_only: bool,
 
-        #[structopt(short, long, default_value = "3000")]
-        port: u16,
+        /// Refresh interval in milliseconds
+        #[structopt(long = "refresh")]
+        refresh_timeout: Option<u64>,
     },
     /// Copy data from one backend to another
     Copy {
@@ -52,17 +57,61 @@ enum Command {
     },
 }
 
+async fn refresh_index(
+    backend_handle: Arc<RwLock<Box<dyn Backend + Send + Sync>>>,
+    index_handle: Arc<RwLock<Index>>,
+    every: std::time::Duration,
+) {
+    let mut interval = tokio::time::interval(every);
+    loop {
+        tokio::select! {
+            _ = crate::utils::shutdown_signal("Backend task") => {
+                break;
+            },
+            _ = interval.tick() => {
+                tracing::debug!("Refreshing index");
+                match backend_handle.as_ref().write().await.load().await {
+                    Ok(new_index) => {
+                        let mut index = index_handle.as_ref().write().await;
+                        *index = new_index;
+                        tracing::info!("Refreshed index");
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load index data: {}", e);
+                    },
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     utils::setup_logging();
 
     match Command::from_args() {
-        Command::Serve { port, backend_options, read_only } => {
+        Command::Serve {
+            port,
+            backend_options,
+            read_only,
+            refresh_timeout,
+        } => {
             let backend = backend_options.build().unwrap();
             let index = backend.load().await.unwrap(); // TODO: Error handling.
 
             let backend_handle = Arc::new(RwLock::new(backend));
             let index_handle = Arc::new(RwLock::new(index));
+
+            if let Some(interval) = refresh_timeout {
+                if !read_only {
+                    tracing::warn!("Background refresh enabled in write mode.");
+                }
+                tokio::spawn(refresh_index(
+                    backend_handle.clone(),
+                    index_handle.clone(),
+                    std::time::Duration::from_millis(interval),
+                ));
+            }
 
             server::run_server(port, index_handle, backend_handle, read_only)
                 .await?;

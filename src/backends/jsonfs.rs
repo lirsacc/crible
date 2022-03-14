@@ -13,8 +13,8 @@ pub struct JsonFSBackend {
 type JsonFSFormat = HashMap<String, String>;
 
 /// Filesystem backend using an easily cross-compatible json format. The data is
-/// save as a Json object where each key is a property and each value is the
-/// based74 encoded serialized Roaring Bitmap.
+/// saved as a Json object where each key is a property and each value is the
+/// based64 encoded serialized Roaring Bitmap.
 impl JsonFSBackend {
     pub fn new<T: Into<std::path::PathBuf> + AsRef<std::ffi::OsStr>>(
         p: &T,

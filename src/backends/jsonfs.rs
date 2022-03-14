@@ -8,6 +8,7 @@ use crate::index::Index;
 
 // TODO: Use buffered read and writes.
 
+#[derive(Debug)]
 pub struct JsonFSBackend {
     path: std::path::PathBuf,
 }

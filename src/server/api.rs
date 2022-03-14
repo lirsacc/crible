@@ -18,7 +18,7 @@ use super::errors::APIError;
 
 type IndexShared = Arc<RwLock<Index>>;
 type IndexExt = Extension<IndexShared>;
-type BackendShared = Arc<RwLock<Box<dyn Backend + Send + Sync>>>;
+type BackendShared = Arc<RwLock<Box<dyn Backend>>>;
 type BackendExt = Extension<BackendShared>;
 
 async fn flush(

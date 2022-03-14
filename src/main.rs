@@ -11,11 +11,11 @@
 
 use clap::{Parser, Subcommand};
 use color_eyre::Report;
+use tokio::sync::RwLock;
+use tracing::Instrument;
 
 use std::io::Write;
 use std::sync::Arc;
-
-use tokio::sync::RwLock;
 
 mod backends;
 mod expression;
@@ -27,10 +27,19 @@ use crate::backends::{Backend, BackendOptions};
 use crate::expression::Expression;
 use crate::index::Index;
 
+#[cfg(not(debug_assertions))]
+const _DEFAULT_DEBUG: bool = false;
+#[cfg(debug_assertions)]
+const _DEFAULT_DEBUG: bool = true;
+
 #[derive(Parser)]
 #[clap(version, about, long_about = None)]
 #[clap(propagate_version = true)]
 struct Cli {
+    /// Enable debug logging
+    #[clap(short, long, env = "CRIBLE_DEBUG")]
+    debug: Option<bool>,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -76,29 +85,44 @@ enum Command {
     },
 }
 
-async fn refresh_index(
-    backend_handle: Arc<RwLock<Box<dyn Backend + Send + Sync>>>,
+async fn run_refresh_task(
+    backend_handle: Arc<RwLock<Box<dyn Backend>>>,
     index_handle: Arc<RwLock<Index>>,
     every: std::time::Duration,
 ) {
+    tracing::info!(
+        "Starting refresh task. Will update backend every {:?}.",
+        every
+    );
+
     let mut interval = tokio::time::interval(every);
+
     loop {
         tokio::select! {
             _ = crate::utils::shutdown_signal("Backend task") => {
                 break;
             },
             _ = interval.tick() => {
-                tracing::debug!("Refreshing index");
-                match backend_handle.as_ref().write().await.load().await {
-                    Ok(new_index) => {
-                        let mut index = index_handle.as_ref().write().await;
-                        *index = new_index;
-                        tracing::info!("Refreshed index");
+                async {
+                    match backend_handle
+                        .as_ref()
+                        .write()
+                        .await
+                        .load()
+                        .instrument(tracing::info_span!("load_index"))
+                        .await
+                    {
+                        Ok(new_index) => {
+                            let mut index = index_handle.as_ref().write().await;
+                            *index = new_index;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load index data: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to load index data: {}", e);
-                    },
                 }
+                .instrument(tracing::info_span!("refresh_index"))
+                .await
             }
         }
     }
@@ -106,9 +130,9 @@ async fn refresh_index(
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
-    utils::setup_logging();
-
     let cli = Cli::parse();
+
+    utils::setup_logging(cli.debug.unwrap_or(_DEFAULT_DEBUG));
 
     match &cli.command {
         Command::Serve {
@@ -118,21 +142,27 @@ async fn main() -> Result<(), Report> {
             refresh_timeout,
         } => {
             let backend = backend_options.build().unwrap();
-            let index = backend.load().await.unwrap();
+            let index = backend
+                .load()
+                .instrument(tracing::info_span!("load_index"))
+                .await
+                .unwrap();
 
             let backend_handle = Arc::new(RwLock::new(backend));
             let index_handle = Arc::new(RwLock::new(index));
 
             if let Some(interval) = refresh_timeout {
                 if !read_only {
-                    tracing::warn!("Background refresh enabled in write mode.");
+                    tracing::warn!("Background refresh enabled in write mode");
                 }
-                tokio::spawn(refresh_index(
+                tokio::spawn(run_refresh_task(
                     backend_handle.clone(),
                     index_handle.clone(),
                     std::time::Duration::from_millis(*interval),
                 ));
             }
+
+            tracing::info!("Starting server on port {:?}", port);
 
             server::run_server(*port, index_handle, backend_handle, *read_only)
                 .await?;
@@ -157,7 +187,17 @@ async fn main() -> Result<(), Report> {
             let from_backend = from.build().unwrap();
             let mut to_backend = to.build().unwrap();
             to_backend.clear().await.unwrap();
-            to_backend.dump(&from_backend.load().await.unwrap()).await.unwrap();
+            to_backend
+                .dump(
+                    &from_backend
+                        .load()
+                        .instrument(tracing::debug_span!("load_index"))
+                        .await
+                        .unwrap(),
+                )
+                .instrument(tracing::debug_span!("dump_index"))
+                .await
+                .unwrap();
             Ok(())
         }
     }

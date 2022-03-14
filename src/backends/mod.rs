@@ -16,7 +16,7 @@ pub use self::memory::MemoryBackend;
 pub use self::redis::RedisBackend;
 
 #[async_trait]
-pub trait Backend {
+pub trait Backend: Send + Sync + std::fmt::Debug {
     async fn load(&self) -> Result<Index, eyre::Report>;
     async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report>;
     async fn clear(&mut self) -> Result<(), eyre::Report>;
@@ -76,9 +76,7 @@ impl FromStr for BackendOptions {
 }
 
 impl BackendOptions {
-    pub fn build(
-        &self,
-    ) -> Result<Box<dyn Backend + Send + Sync>, eyre::Report> {
+    pub fn build(&self) -> Result<Box<dyn Backend>, eyre::Report> {
         Ok(match self {
             Self::Memory => Box::new(MemoryBackend::default()),
             Self::Bin(p) => Box::new(match p {

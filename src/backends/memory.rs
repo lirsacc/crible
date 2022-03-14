@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use super::Backend;
 use crate::index::Index;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct MemoryBackend(Index);
 
 #[async_trait]

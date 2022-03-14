@@ -30,7 +30,7 @@ mod errors;
 pub async fn run_server(
     port: u16,
     index_handle: Arc<RwLock<Index>>,
-    backend_handle: Arc<RwLock<Box<dyn Backend + Send + Sync>>>,
+    backend_handle: Arc<RwLock<Box<dyn Backend>>>,
     read_only: bool,
 ) -> Result<(), Report> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -68,9 +68,6 @@ pub async fn run_server(
                         "request",
                         method = %request.method(),
                         uri = %request.uri(),
-                        version = ?request.version(),
-                        status = tracing::field::Empty,
-                        duration = tracing::field::Empty,
                         request_id = ?request.headers().get(HeaderName::from_static("x-request-id")).map_or("".to_owned(), |hv| hv.to_str().unwrap_or("").to_owned()),
                     )
                 })

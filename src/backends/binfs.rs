@@ -9,6 +9,7 @@ use crate::index::Index;
 
 const BIN_FS_FORMAT_VERSION: u32 = 1;
 
+#[derive(Debug)]
 pub struct BinFSBackend {
     path: std::path::PathBuf,
 }

@@ -9,6 +9,7 @@ use crate::index::Index;
 
 const KEY_PREFIX: &str = "crible";
 
+#[derive(Debug)]
 pub struct RedisBackend {
     client: redis::Client,
     key: String,

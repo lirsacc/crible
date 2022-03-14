@@ -163,6 +163,12 @@ impl Index {
     }
 }
 
+impl std::fmt::Debug for Index {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Index [{} properties]", self.0.len())
+    }
+}
+
 #[derive(Debug, Serialize, Default)]
 pub struct Stats {
     pub cardinality: u64,

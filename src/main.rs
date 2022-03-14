@@ -9,8 +9,8 @@
     unused_qualifications
 )]
 
+use clap::{Parser, Subcommand};
 use color_eyre::Report;
-use structopt::StructOpt;
 
 use std::sync::Arc;
 
@@ -25,34 +25,46 @@ mod utils;
 use crate::backends::{Backend, BackendOptions};
 use crate::index::Index;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "crible")]
+#[derive(Parser)]
+#[clap(version, about, long_about = None)]
+#[clap(propagate_version = true)]
+struct Cli {
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+#[clap(version, about, long_about = None)]
 enum Command {
     /// Run the server.
     Serve {
         /// Backend configuration url
-        #[structopt(long = "backend", default_value = "memory://")]
+        #[clap(
+            long = "backend",
+            env = "CRIBLE_BACKEND",
+            default_value = "memory://"
+        )]
         backend_options: BackendOptions,
 
-        #[structopt(short, long, default_value = "3000")]
+        #[clap(short, long, env = "CRIBLE_PORT", default_value = "3000")]
         port: u16,
 
         /// Disable all write operations.
-        #[structopt(long)]
+        #[clap(long, env = "CRIBLE_READ_ONLY")]
         read_only: bool,
 
         /// Refresh interval in milliseconds
-        #[structopt(long = "refresh")]
+        #[clap(long = "refresh", env = "CRIBLE_REFRESH")]
         refresh_timeout: Option<u64>,
     },
     /// Copy data from one backend to another
     Copy {
         /// Source backend configuration url
-        #[structopt(long)]
+        #[clap(long)]
         from: BackendOptions,
 
         /// Destination backend configuration url
-        #[structopt(long)]
+        #[clap(long)]
         to: BackendOptions,
     },
 }
@@ -89,7 +101,9 @@ async fn refresh_index(
 async fn main() -> Result<(), Report> {
     utils::setup_logging();
 
-    match Command::from_args() {
+    let cli = Cli::parse();
+
+    match &cli.command {
         Command::Serve {
             port,
             backend_options,
@@ -109,11 +123,11 @@ async fn main() -> Result<(), Report> {
                 tokio::spawn(refresh_index(
                     backend_handle.clone(),
                     index_handle.clone(),
-                    std::time::Duration::from_millis(interval),
+                    std::time::Duration::from_millis(*interval),
                 ));
             }
 
-            server::run_server(port, index_handle, backend_handle, read_only)
+            server::run_server(*port, index_handle, backend_handle, *read_only)
                 .await?;
         }
         Command::Copy { from, to } => {

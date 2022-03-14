@@ -19,6 +19,8 @@ use nom::{
 };
 use thiserror::Error;
 
+use std::str::FromStr;
+
 const KEYWORDS: [&str; 4] = ["not", "and", "xor", "or"];
 const MAX_LENGTH: usize = 2048;
 
@@ -181,6 +183,13 @@ impl Expression {
                 rhs.as_ref().serialize()
             ),
         }
+    }
+}
+
+impl FromStr for Expression {
+    type Err = ExpressionError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Expression::parse(value)
     }
 }
 

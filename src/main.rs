@@ -12,6 +12,7 @@
 use clap::{Parser, Subcommand};
 use color_eyre::Report;
 
+use std::io::Write;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -23,6 +24,7 @@ mod server;
 mod utils;
 
 use crate::backends::{Backend, BackendOptions};
+use crate::expression::Expression;
 use crate::index::Index;
 
 #[derive(Parser)]
@@ -56,6 +58,19 @@ enum Command {
         /// Refresh interval in milliseconds
         #[clap(long = "refresh", env = "CRIBLE_REFRESH")]
         refresh_timeout: Option<u64>,
+    },
+    /// Execute a single query against the index.
+    Query {
+        /// Backend configuration url
+        #[clap(
+            long = "backend",
+            env = "CRIBLE_BACKEND",
+            default_value = "memory://"
+        )]
+        backend_options: BackendOptions,
+
+        #[clap(long)]
+        query: Expression,
     },
     /// Copy data from one backend to another
     Copy {
@@ -111,7 +126,7 @@ async fn main() -> Result<(), Report> {
             refresh_timeout,
         } => {
             let backend = backend_options.build().unwrap();
-            let index = backend.load().await.unwrap(); // TODO: Error handling.
+            let index = backend.load().await.unwrap();
 
             let backend_handle = Arc::new(RwLock::new(backend));
             let index_handle = Arc::new(RwLock::new(index));
@@ -129,14 +144,29 @@ async fn main() -> Result<(), Report> {
 
             server::run_server(*port, index_handle, backend_handle, *read_only)
                 .await?;
+
+            Ok(())
+        }
+        Command::Query { backend_options, query } => {
+            let backend = backend_options.build().unwrap();
+            let index = backend.load().await.unwrap();
+
+            let res = index.execute(query)?;
+
+            let stdout = std::io::stdout();
+            let mut buffer = std::io::BufWriter::new(stdout.lock());
+
+            for x in res.iter() {
+                writeln!(buffer, "{}", x)?;
+            }
+            Ok(())
         }
         Command::Copy { from, to } => {
             let from_backend = from.build().unwrap();
             let mut to_backend = to.build().unwrap();
             to_backend.clear().await.unwrap();
-            to_backend.dump(&from_backend.load().await.unwrap()).await.unwrap()
+            to_backend.dump(&from_backend.load().await.unwrap()).await.unwrap();
+            Ok(())
         }
     }
-
-    Ok(())
 }

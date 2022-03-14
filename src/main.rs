@@ -70,9 +70,6 @@ async fn main() -> Result<(), Report> {
         Command::Copy { from, to } => {
             let from_backend = from.build().unwrap();
             let mut to_backend = to.build().unwrap();
-
-            tracing::info!("Copying data from {:?} to {:?}", from, to);
-
             to_backend.clear().await.unwrap();
             to_backend.dump(&from_backend.load().await.unwrap()).await.unwrap()
         }

@@ -35,8 +35,6 @@ pub async fn run_server(
 ) -> Result<(), Report> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    tracing::info!("Starting server at {:?}; read-only = {}", addr, read_only);
-
     let mut app = Router::new()
         .route("/", get(api::handler_home))
         .route("/query", post(api::handler_query))

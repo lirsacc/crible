@@ -1,0 +1,53 @@
+on: [push, pull_request]
+
+name: ci
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install stable rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v1
+      - name: rustfmt
+        run: cargo fmt --check --all
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install stable rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+      - uses: Swatinem/rust-cache@v1
+      - name: Clippy
+        run: cargo clippy
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    name: Tests
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v1
+      - name: Build
+        run: cargo build --locked --all-targets --verbose
+      - name: Tests
+        run: cargo test --no-fail-fast --locked --verbose

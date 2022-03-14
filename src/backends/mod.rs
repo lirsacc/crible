@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::index::Index;
@@ -7,10 +8,12 @@ use crate::index::Index;
 mod binfs;
 mod jsonfs;
 mod memory;
+mod redis;
 
 pub use self::binfs::BinFSBackend;
 pub use self::jsonfs::JsonFSBackend;
 pub use self::memory::MemoryBackend;
+pub use self::redis::RedisBackend;
 
 #[async_trait]
 pub trait Backend {
@@ -24,6 +27,7 @@ pub enum BackendOptions {
     Memory,
     Bin(Option<std::path::PathBuf>),
     Json(Option<std::path::PathBuf>),
+    Redis { url: url::Url, key: Option<String> },
 }
 
 fn single_path_from_url(url: &url::Url) -> Result<Option<std::path::PathBuf>, eyre::Report> {
@@ -50,19 +54,28 @@ fn single_path_from_url(url: &url::Url) -> Result<Option<std::path::PathBuf>, ey
 impl FromStr for BackendOptions {
     type Err = eyre::Report;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let url = url::Url::parse(value)?;
+        let mut url = url::Url::parse(value)?;
         match url.scheme() {
             "fs" => Ok(BackendOptions::Bin(single_path_from_url(&url)?)),
             "json" => Ok(BackendOptions::Json(single_path_from_url(&url)?)),
             "memory" => Ok(BackendOptions::Memory),
+            "redis" => {
+                let query_pairs = url
+                    .query_pairs()
+                    .into_owned()
+                    .collect::<HashMap<String, String>>();
+                url.set_query(None);
+                let key = query_pairs.get("key").map(|x| x.to_owned());
+                Ok(BackendOptions::Redis { url, key })
+            }
             x => Err(eyre::Report::msg(format!("Unknown scheme: {:?}", x))),
         }
     }
 }
 
 impl BackendOptions {
-    pub fn build(&self) -> Box<dyn Backend + Send + Sync> {
-        match self {
+    pub fn build(&self) -> Result<Box<dyn Backend + Send + Sync>, eyre::Report> {
+        Ok(match self {
             Self::Memory => Box::new(MemoryBackend::default()),
             Self::Bin(p) => Box::new(match p {
                 None => BinFSBackend::default(),
@@ -72,6 +85,7 @@ impl BackendOptions {
                 None => JsonFSBackend::default(),
                 Some(x) => JsonFSBackend::new(x),
             }),
-        }
+            Self::Redis { url, key } => Box::new(RedisBackend::new(url, key.to_owned())?),
+        })
     }
 }

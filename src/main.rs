@@ -51,7 +51,7 @@ async fn main() -> Result<(), Report> {
             backend_options,
             read_only,
         } => {
-            let backend = backend_options.build();
+            let backend = backend_options.build().unwrap();
             let index = backend.load().await.unwrap(); // TODO: Error handling.
 
             let backend_handle = Arc::new(RwLock::new(backend));
@@ -65,8 +65,8 @@ async fn main() -> Result<(), Report> {
             server::run_server(port, index_handle, backend_handle, read_only).await?;
         }
         Command::Copy { from, to } => {
-            let from_backend = from.build();
-            let mut to_backend = to.build();
+            let from_backend = from.build().unwrap();
+            let mut to_backend = to.build().unwrap();
 
             tracing::info!("Copying data from {:?} to {:?}", from, to);
 

@@ -1,19 +1,39 @@
-FROM rust:1.59-slim-bullseye as builder
+#syntax=docker/dockerfile:experimental
 
-RUN cargo new --bin crible
-WORKDIR /crible
+# Build image
+FROM rust:1.59-slim-bullseye as builder
 
 RUN apt-get update && apt-get install --yes --no-install-recommends \
     libclang-dev
 
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-RUN cargo build --release
+RUN cargo new --bin crible
+WORKDIR /crible
 
+# 1. Build only dependencies against an empty app
+COPY ./Cargo.lock ./Cargo.toml .
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
+# 2. Build the app itself
 RUN rm src/*.rs
 COPY ./src ./src
-RUN rm ./target/release/deps/crible* && cargo build --release
+RUN rm ./target/release/deps/crible*
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
+# Runtime image
 FROM debian:bullseye-slim
-COPY --from=builder /crible/target/release/crible .
-ENTRYPOINT ["./crible"]
+
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+    tini \
+    curl
+
+RUN \
+    addgroup --system --gid 1000 crible && \
+    adduser --system --uid 2000 --ingroup crible crible
+
+COPY --from=builder /crible/target/release/crible /usr/local/bin/crible
+
+WORKDIR /home/crible
+EXPOSE 3000
+USER crible
+ENTRYPOINT ["tini", "--"]
+CMD /usr/local/bin/crible

@@ -1,5 +1,5 @@
 //! This module implements all the logic related to parsing and representing
-//! queries.
+//! boolean queries over properties.
 
 // TODO: Handle sub operator.
 // TODO: Handle symbols?
@@ -21,14 +21,36 @@ use thiserror::Error;
 
 use std::str::FromStr;
 
-const KEYWORDS: [&str; 4] = ["not", "and", "xor", "or"];
 const MAX_LENGTH: usize = 2048;
+
+/** Rough grammar for the nom parser:
+ *
+ * <property> = [A-Za-z][A-Za-z0-9-_\.\/\:]*
+ *
+ * <and-operation> = <term> \s+ { "and" | "AND" } \s+ <term>
+ * <or-operation> = <term> \s+ { "or" | "OR" } \s+ <term>
+ * <xor-operation> = <term> \s+ { "xor" | "XOR" } \s+ <term>
+ *
+ * <inverted> = "not" \s+ <expression>
+ * <wrapped> = "(" \s* <expression> \s* ")"
+ * <subexpression> = <and-operation> | <or-operation> | <xor-operation> | <term>
+ *
+ * <term> = <inverted> | <wrapped> | <property>
+ *
+ * <root> = "*"
+ *
+ * <expression> = \s* { <root> | <subexpression> } \s*
+**/
+
+const KEYWORDS: [&str; 4] = ["not", "and", "xor", "or"];
 
 fn parse_property(s: &str) -> IResult<&str, Expression> {
     map(
         verify(
             recognize(pair(
+                // Properties start with a letter
                 alpha1,
+                // They can then be any combination of letter, digit and separator ([-_./:])
                 many0(alt((
                     alphanumeric1,
                     tag("_"),
@@ -38,13 +60,24 @@ fn parse_property(s: &str) -> IResult<&str, Expression> {
                     tag(":"),
                 ))),
             )),
+            // As long as they don't conflict with existing keywords
+            // TODO: is there a better way to do this than `verify(...)`?
             |x: &str| !KEYWORDS.contains(&&*x.to_lowercase()),
         ),
         Expression::property,
     )(s)
 }
 
-fn parse_and_op(s: &str) -> IResult<&str, Expression> {
+// Operations (and, xor, or) are pairs of terms separated with a fixed operator.
+// The main consequence of this is that we do not support mixed operators in the
+// same operation, e.g. "A and B or C" would require disambiguating through
+// precedence and is considered invalid. Such queries must be spelled out using
+// parenthesis so "(A and B) or C" for the natural interpretation of the
+// previous example. This is purely to simplify the parsing / grammar and given
+// the use case where operations should be built by machines this is an
+// acceptable tradeoff.
+
+fn parse_and_operation(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
     let (rest, _) =
         delimited(multispace1, tag_no_case("and"), multispace1)(rest)?;
@@ -52,7 +85,7 @@ fn parse_and_op(s: &str) -> IResult<&str, Expression> {
     Ok((rest, Expression::and(lhs, rhs)))
 }
 
-fn parse_or_op(s: &str) -> IResult<&str, Expression> {
+fn parse_or_operation(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
     let (rest, _) =
         delimited(multispace1, tag_no_case("or"), multispace1)(rest)?;
@@ -60,7 +93,7 @@ fn parse_or_op(s: &str) -> IResult<&str, Expression> {
     Ok((rest, Expression::or(lhs, rhs)))
 }
 
-fn parse_xor_op(s: &str) -> IResult<&str, Expression> {
+fn parse_xor_operation(s: &str) -> IResult<&str, Expression> {
     let (rest, lhs) = parse_term(s)?;
     let (rest, _) =
         delimited(multispace1, tag_no_case("xor"), multispace1)(rest)?;
@@ -78,7 +111,13 @@ fn parse_inverted(s: &str) -> IResult<&str, Expression> {
 fn parse_wrapped(s: &str) -> IResult<&str, Expression> {
     delimited(
         tag("("),
-        delimited(multispace0, cut(parse_expression), multispace0),
+        delimited(
+            multispace0,
+            // `cut` here essentially says there must be a non empty
+            // subexpression between pairs of ()
+            cut(parse_subexpression),
+            multispace0,
+        ),
         tag(")"),
     )(s)
 }
@@ -87,16 +126,31 @@ fn parse_term(s: &str) -> IResult<&str, Expression> {
     alt((parse_inverted, parse_wrapped, parse_property))(s)
 }
 
-fn parse_expression(s: &str) -> IResult<&str, Expression> {
+fn parse_subexpression(s: &str) -> IResult<&str, Expression> {
     delimited(
         multispace0,
-        cut(alt((parse_and_op, parse_or_op, parse_xor_op, parse_term))),
+        cut(alt((
+            parse_and_operation,
+            parse_or_operation,
+            parse_xor_operation,
+            parse_term,
+        ))),
         multispace0,
     )(s)
 }
 
 fn parse_root(s: &str) -> IResult<&str, Expression> {
     map(delimited(multispace0, tag("*"), multispace0), |_| Expression::Root)(s)
+}
+
+fn parse_expression(s: &str) -> IResult<&str, Expression> {
+    alt((
+        // '*' is a valid query when used standalone. It's invalid used anywhere
+        // else. There's no further validation that the root term can only occur
+        // alone, so this is only true for parsed queries.
+        parse_root,
+        parse_subexpression,
+    ))(s)
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -110,6 +164,7 @@ pub enum ExpressionError {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+/// A boolean expression.
 pub enum Expression {
     Root,
     Property(String),
@@ -120,11 +175,11 @@ pub enum Expression {
 }
 
 impl Expression {
-    pub fn parse(query: &str) -> Result<Self, ExpressionError> {
-        if query.len() > MAX_LENGTH {
+    pub fn parse(input: &str) -> Result<Self, ExpressionError> {
+        if input.len() > MAX_LENGTH {
             Err(ExpressionError::InputStringToolLong)
         } else {
-            match alt((parse_root, parse_expression))(query) {
+            match parse_expression(input) {
                 Ok((rest, expression)) => {
                     if rest.is_empty() {
                         Ok(expression)
@@ -137,6 +192,8 @@ impl Expression {
         }
     }
 
+    // Helpers to build Expressions with less characters.
+    // TODO: Should we implement corresponding std::ops traits instead?
     #[inline]
     pub fn property(name: &str) -> Self {
         Expression::Property(name.to_owned())
@@ -162,6 +219,8 @@ impl Expression {
         Expression::Not(Box::new(expr))
     }
 
+    // This should provide a _canonical_ representation of a query ignoring
+    // whitespace and parenthesis. Useful for caching / deduplication / etc.
     pub fn serialize(&self) -> String {
         match self {
             Self::Root => "*".to_owned(),

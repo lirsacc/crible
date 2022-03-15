@@ -153,19 +153,32 @@ impl Index {
         match prefix {
             None => (&self.0)
                 .iter()
-                .map(|(k, v)| (k.to_owned(), source.and_cardinality(v)))
+                .filter_map(|x| _filter_map_cardinality(source, x))
                 .collect(),
             Some(p) => (&self.0)
                 .iter()
                 .filter_map(|(k, v)| {
                     if k.starts_with(p) {
-                        Some((k.to_owned(), source.and_cardinality(v)))
+                        _filter_map_cardinality(source, (k, v))
                     } else {
                         None
                     }
                 })
                 .collect(),
         }
+    }
+}
+
+#[inline]
+fn _filter_map_cardinality(
+    source: &Bitmap,
+    (k, v): (&String, &Bitmap),
+) -> Option<(String, u64)> {
+    let x = source.and_cardinality(v);
+    if x > 0 {
+        Some((k.to_owned(), x))
+    } else {
+        None
     }
 }
 

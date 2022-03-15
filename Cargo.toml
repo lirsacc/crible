@@ -18,8 +18,6 @@ croaring = "0.5.1"
 eyre = "0.6.7"
 nom = "7.1.0"
 redis = { version = "0.21.5", features = ["tokio-comp", "connection-manager"] }
-savefile = "0.10.1"
-savefile-derive = "0.10.1"
 serde = "1.0.136"
 serde_derive = "1.0.136"
 serde_json = "1.0.79"

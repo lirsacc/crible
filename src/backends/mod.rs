@@ -5,12 +5,10 @@ use std::str::FromStr;
 
 use crate::index::Index;
 
-mod binfs;
 mod jsonfs;
 mod memory;
 mod redis;
 
-pub use self::binfs::BinFSBackend;
 pub use self::jsonfs::JsonFSBackend;
 pub use self::memory::MemoryBackend;
 pub use self::redis::RedisBackend;
@@ -25,7 +23,6 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BackendOptions {
     Memory,
-    Bin(Option<std::path::PathBuf>),
     Json(Option<std::path::PathBuf>),
     Redis { url: url::Url, key: Option<String> },
 }
@@ -58,7 +55,6 @@ impl FromStr for BackendOptions {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let mut url = url::Url::parse(value)?;
         match url.scheme() {
-            "fs" => Ok(BackendOptions::Bin(single_path_from_url(&url)?)),
             "json" => Ok(BackendOptions::Json(single_path_from_url(&url)?)),
             "memory" => Ok(BackendOptions::Memory),
             "redis" => {
@@ -79,10 +75,6 @@ impl BackendOptions {
     pub fn build(&self) -> Result<Box<dyn Backend>, eyre::Report> {
         Ok(match self {
             Self::Memory => Box::new(MemoryBackend::default()),
-            Self::Bin(p) => Box::new(match p {
-                None => BinFSBackend::default(),
-                Some(x) => BinFSBackend::new(x),
-            }),
             Self::Json(p) => Box::new(match p {
                 None => JsonFSBackend::default(),
                 Some(x) => JsonFSBackend::new(x),

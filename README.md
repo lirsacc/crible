@@ -21,3 +21,16 @@ A single index like this becomes useful when:
 - the core schema becomes too spread out and the join overhead creeps up
 - the indexed space is too large to fit comfortably and consistently in memory
 - you need search over data coming from multiple sources
+
+
+## TODO / Next steps
+
+- [ ] Benchmarking.
+- [ ] Tests.
+- [ ] Better logging + Proper error handling and reporting.
+- [ ] Relax parsing of expression to allow chains (A and B and C and ...) and not only balanced pairs.
+- [ ] Documentation.
+- [ ] Evaluate concurrent processing (e.g. compute cardinalities, multiple queries endpoint, etc.).
+- [ ] Support partial load, dump and refresh through backends. Ideally this could make things faster / stall less when only a subset of the index changes on every tick.
+- [ ] Postgres backend.
+- [ ] Evaluate subscription based backends (vs. current poll approach).

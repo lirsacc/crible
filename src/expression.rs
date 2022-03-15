@@ -1,7 +1,6 @@
 //! This module implements all the logic related to parsing and representing
 //! boolean queries over properties.
 
-// TODO: Handle sub operator.
 // TODO: Handle symbols?
 // TODO: Better error handling?
 // TODO: Allow more than 2 operators to AND,OR and XOR (... and ... and ...)
@@ -30,10 +29,16 @@ const MAX_LENGTH: usize = 2048;
  * <and-operation> = <term> \s+ { "and" | "AND" } \s+ <term>
  * <or-operation> = <term> \s+ { "or" | "OR" } \s+ <term>
  * <xor-operation> = <term> \s+ { "xor" | "XOR" } \s+ <term>
+ * <sub-operation> = <term> \s+ { "-" } \s+ <term>
  *
  * <inverted> = "not" \s+ <expression>
  * <wrapped> = "(" \s* <expression> \s* ")"
- * <subexpression> = <and-operation> | <or-operation> | <xor-operation> | <term>
+ *
+ * <subexpression> = <and-operation>
+ *                 | <or-operation>
+ *                 | <xor-operation>
+ *                 | <sub-operation>
+ *                 | <term>
  *
  * <term> = <inverted> | <wrapped> | <property>
  *
@@ -101,6 +106,13 @@ fn parse_xor_operation(s: &str) -> IResult<&str, Expression> {
     Ok((rest, Expression::xor(lhs, rhs)))
 }
 
+fn parse_sub_operation(s: &str) -> IResult<&str, Expression> {
+    let (rest, lhs) = parse_term(s)?;
+    let (rest, _) = delimited(multispace1, tag("-"), multispace1)(rest)?;
+    let (rest, rhs) = parse_term(rest)?;
+    Ok((rest, Expression::sub(lhs, rhs)))
+}
+
 fn parse_inverted(s: &str) -> IResult<&str, Expression> {
     let (rest, _) =
         alt((terminated(tag_no_case("not"), multispace1), tag("!")))(s)?;
@@ -133,6 +145,7 @@ fn parse_subexpression(s: &str) -> IResult<&str, Expression> {
             parse_and_operation,
             parse_or_operation,
             parse_xor_operation,
+            parse_sub_operation,
             parse_term,
         ))),
         multispace0,
@@ -171,6 +184,7 @@ pub enum Expression {
     Or(Box<Expression>, Box<Expression>),
     And(Box<Expression>, Box<Expression>),
     Xor(Box<Expression>, Box<Expression>),
+    Sub(Box<Expression>, Box<Expression>),
     Not(Box<Expression>),
 }
 
@@ -215,6 +229,11 @@ impl Expression {
     }
 
     #[inline]
+    pub fn sub(lhs: Self, rhs: Self) -> Self {
+        Expression::Sub(Box::new(lhs), Box::new(rhs))
+    }
+
+    #[inline]
     pub fn not(expr: Self) -> Self {
         Expression::Not(Box::new(expr))
     }
@@ -238,6 +257,11 @@ impl Expression {
             ),
             Self::Xor(lhs, rhs) => format!(
                 "({}) xor ({})",
+                lhs.as_ref().serialize(),
+                rhs.as_ref().serialize()
+            ),
+            Self::Sub(lhs, rhs) => format!(
+                "({}) - ({})",
                 lhs.as_ref().serialize(),
                 rhs.as_ref().serialize()
             ),
@@ -355,6 +379,16 @@ mod tests {
     #[case(
         "foo and (bar or baz)",
         Expression::and(
+            Expression::property("foo"),
+            Expression::or(
+                Expression::property("bar"),
+                Expression::property("baz"),
+            ),
+        )
+    )]
+    #[case(
+        "foo - (bar or baz)",
+        Expression::sub(
             Expression::property("foo"),
             Expression::or(
                 Expression::property("bar"),

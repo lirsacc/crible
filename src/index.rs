@@ -135,6 +135,9 @@ impl Index {
             Expression::Xor(l, r) => {
                 Ok(self.execute(l.as_ref())?.xor(&self.execute(r.as_ref())?))
             }
+            Expression::Sub(l, r) => {
+                Ok(self.execute(l.as_ref())?.andnot(&self.execute(r.as_ref())?))
+            }
             Expression::Not(e) => Ok(self.root() - self.execute(e.as_ref())?),
         }
     }
@@ -233,6 +236,22 @@ mod tests {
             .to_vec();
 
         assert_eq!(matches, vec![42, 43, 44]);
+    }
+
+    #[test]
+    fn simple_sub() {
+        let mut index = Index::default();
+        index.set("foo:0", 42);
+        index.set("foo:0", 43);
+        index.set("foo:1", 42);
+        index.set("foo:1", 44);
+
+        let matches = index
+            .execute(&Expression::parse("(foo:0 - foo:1)").unwrap())
+            .unwrap()
+            .to_vec();
+
+        assert_eq!(matches, vec![43]);
     }
 
     #[test]

@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::convert::From;
 
@@ -7,9 +6,6 @@ use serde_derive::Serialize;
 use thiserror::Error;
 
 use crate::expression::Expression;
-
-// TODO: Cache root?
-// TODO: Rayon / concurrent iteration for some functions.
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum IndexError {
@@ -20,6 +16,13 @@ pub enum IndexError {
 #[derive(Clone, Default)]
 pub struct Index(pub(crate) HashMap<String, Bitmap>);
 
+/// An Index is simply a very large bit-matrix where each row is an individual
+/// property and each column is unique element id represented by a bit on the
+/// row. The index is a container with a convenient interface to set and unset
+/// bits and execute boolean operations across rows.
+///
+/// All semantics must exist outside of the Index (meaning of the
+/// properties, of their combinations, etc.).
 impl Index {
     pub fn new(data: HashMap<String, Bitmap>) -> Self {
         Self(data)
@@ -33,6 +36,7 @@ impl Index {
         self.0.is_empty()
     }
 
+    // TODO: Could we cache this internally?
     pub fn root(&self) -> Bitmap {
         Bitmap::fast_or(&self.0.values().collect::<Vec<&Bitmap>>())
     }
@@ -41,31 +45,11 @@ impl Index {
         if self.is_empty() {
             Stats::default()
         } else {
-            (&self.root()).into()
+            self.root().into()
         }
     }
 
-    pub fn property_stats(&self) -> HashMap<String, Stats> {
-        self.0.iter().map(|(k, v)| (k.to_owned(), v.into())).collect()
-    }
-
-    pub fn all_properties<'a>(&'a self) -> Vec<&'a str> {
-        let mut p: Vec<&str> = self.0.keys().map(|x| x.as_ref()).collect();
-        p.sort_unstable();
-        p
-    }
-
-    pub fn properties_matching_id<'a>(&'a self, id: u32) -> Vec<&'a str> {
-        let mut x: Vec<&'a str> = self
-            .0
-            .iter()
-            .filter_map(
-                |(k, v)| if v.contains(id) { Some(k.as_ref()) } else { None },
-            )
-            .collect();
-        x.sort_unstable();
-        x
-    }
+    // Operate on rows.
 
     pub fn get_property(&self, property: &str) -> Option<&Bitmap> {
         self.0.get(property)
@@ -83,36 +67,55 @@ impl Index {
         self.0.clear();
     }
 
-    pub fn set(&mut self, property: &str, id: u32) -> bool {
-        (match self.0.entry(property.to_owned()) {
-            Entry::Occupied(e) => &mut *e.into_mut(),
-            Entry::Vacant(e) => &mut *e.insert(Bitmap::create()),
-        })
-        .add_checked(id)
+    // Operate on individual bits.
+
+    pub fn set(&mut self, property: &str, bit: u32) -> bool {
+        self.0
+            .entry(property.to_owned())
+            .or_insert_with(Bitmap::create)
+            .add_checked(bit)
     }
 
-    pub fn set_many(&mut self, property: &str, ids: &[u32]) {
-        (match self.0.entry(property.to_owned()) {
-            Entry::Occupied(e) => &mut *e.into_mut(),
-            Entry::Vacant(e) => &mut *e.insert(Bitmap::create()),
-        })
-        .add_many(ids)
+    pub fn set_many(&mut self, property: &str, bits: &[u32]) {
+        self.0
+            .entry(property.to_owned())
+            .or_insert_with(Bitmap::create)
+            .add_many(bits)
     }
 
-    pub fn unset(&mut self, property: &str, id: u32) -> bool {
-        match self.0.entry(property.to_owned()) {
-            Entry::Occupied(e) => (&mut *e.into_mut()).remove_checked(id),
-            Entry::Vacant(_) => false,
+    pub fn unset(&mut self, property: &str, bit: u32) -> bool {
+        self.0.get_mut(property).map_or(false, |bm| bm.remove_checked(bit))
+    }
+
+    pub fn unset_many(&mut self, property: &str, bits: &[u32]) {
+        if let Some(bm) = self.0.get_mut(property) {
+            bm.andnot_inplace(&Bitmap::of(bits));
         }
     }
 
-    pub fn remove_id(&mut self, id: u32) -> bool {
-        let mut changed = false;
+    pub fn unset_all_bits(&mut self, bits: &[u32]) {
+        let mask = Bitmap::of(bits);
         for bm in self.0.values_mut() {
-            changed = bm.remove_checked(id) || changed;
+            bm.andnot_inplace(&mask);
         }
-        changed
     }
+
+    pub fn properties_with_bit(&self, bit: u32) -> Vec<String> {
+        let mut vec: Vec<String> =
+            self.into_iter()
+                .filter_map(|(k, v)| {
+                    if v.contains(bit) {
+                        Some(k.to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        vec.sort_unstable();
+        vec
+    }
+
+    // Combine rows.
 
     pub fn execute(
         &self,
@@ -172,6 +175,16 @@ impl std::fmt::Debug for Index {
     }
 }
 
+impl<'a> IntoIterator for &'a Index {
+    type Item = (&'a String, &'a Bitmap);
+    type IntoIter = std::collections::hash_map::Iter<'a, String, Bitmap>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 #[derive(Debug, Serialize, Default)]
 pub struct Stats {
     pub cardinality: u64,
@@ -179,8 +192,8 @@ pub struct Stats {
     pub maximum: Option<u32>,
 }
 
-impl From<&Bitmap> for Stats {
-    fn from(bm: &Bitmap) -> Self {
+impl From<Bitmap> for Stats {
+    fn from(bm: Bitmap) -> Self {
         Self {
             cardinality: bm.cardinality(),
             minimum: bm.minimum(),
@@ -189,6 +202,14 @@ impl From<&Bitmap> for Stats {
     }
 }
 
+impl From<&Bitmap> for Stats {
+    fn from(bm: &Bitmap) -> Self {
+        bm.into()
+    }
+}
+
+// TODO: These are limited unit tests. Should write some more complete tests
+// over real-life data.
 #[cfg(test)]
 mod tests {
     use super::*;

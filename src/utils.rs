@@ -1,6 +1,6 @@
 use tokio::signal;
 use tracing_subscriber::{
-    fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, Layer,
+    fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 pub fn set_env_var_default(name: &str, default: &str) {

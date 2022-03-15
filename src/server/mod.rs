@@ -41,22 +41,25 @@ pub async fn run_server(
         .route("/count", post(api::handler_count))
         .route("/bitmap", post(api::handler_bitmap))
         .route("/stats", get(api::handler_stats))
-        .route("/item/:id", get(api::handler_item_get));
+        .route("/bit/:id", get(api::handler_get_bit));
 
+    // TODO: Less verbose way to expose this?
     if !read_only {
         app = app
-            .route("/clear", post(api::handler_clear))
             .route("/set", post(api::handler_set))
-            .route("/unset", post(api::handler_unset))
             .route("/set-many", post(api::handler_set_many))
-            .route("/item/:id", delete(api::handler_item_delete));
+            .route("/unset", post(api::handler_unset))
+            .route("/unset-many", post(api::handler_unset_many))
+            .route("/bit/:id", delete(api::handler_delete_bit))
+            .route("/bit", delete(api::handler_delete_bits));
     } else {
         app = app
-            .route("/clear", post(api::handler_read_only))
             .route("/set", post(api::handler_read_only))
-            .route("/unset", post(api::handler_read_only))
             .route("/set-many", post(api::handler_read_only))
-            .route("/item/:id", delete(api::handler_read_only));
+            .route("/unset", post(api::handler_read_only))
+            .route("/unset-many", post(api::handler_read_only))
+            .route("/bit/:id", delete(api::handler_read_only))
+            .route("/bit", delete(api::handler_read_only));
     }
 
     app = app.fallback(api::handler_404.into_service());

@@ -118,24 +118,18 @@ pub async fn handler_stats(
         StatusCode::OK,
         Json(StatsResponse {
             root: idx.stats(),
-            properties: idx.property_stats(),
+            properties: idx
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.into()))
+                .collect(),
         }),
     ))
-}
-
-pub async fn handler_clear(
-    Extension(index): IndexExt,
-    Extension(backend): BackendExt,
-) -> StaticAPIResult {
-    index.as_ref().write().await.clear();
-    flush(backend, index).await?;
-    Ok((StatusCode::OK, ""))
 }
 
 #[derive(Deserialize)]
 pub struct SetPayload {
     property: String,
-    value: u32,
+    bit: u32,
 }
 
 pub async fn handler_set(
@@ -144,7 +138,7 @@ pub async fn handler_set(
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
     let added =
-        index.as_ref().write().await.set(&payload.property, payload.value);
+        index.as_ref().write().await.set(&payload.property, payload.bit);
     let status_code =
         if added { StatusCode::OK } else { StatusCode::NO_CONTENT };
     flush(backend, index).await?;
@@ -158,8 +152,8 @@ pub async fn handler_set_many(
 ) -> StaticAPIResult {
     {
         let mut idx = index.as_ref().write().await;
-        for (property, values) in payload.iter() {
-            idx.set_many(property, values);
+        for (property, bits) in payload.iter() {
+            idx.set_many(property, bits);
         }
     }
     flush(backend, index).await?;
@@ -172,36 +166,52 @@ pub async fn handler_unset(
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
     let deleted =
-        index.as_ref().write().await.unset(&payload.property, payload.value);
+        index.as_ref().write().await.unset(&payload.property, payload.bit);
     let status_code =
         if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
     flush(backend, index).await?;
     Ok((status_code, ""))
 }
 
-pub async fn handler_item_get(
-    Path(id): Path<u32>,
-    Extension(index): IndexExt,
-) -> JSONAPIResult<Vec<String>> {
-    let properties = index
-        .as_ref()
-        .read()
-        .await
-        .properties_matching_id(id)
-        .iter()
-        .map(|x| (*x).to_owned())
-        .collect::<Vec<String>>();
-    Ok((StatusCode::OK, Json(properties)))
-}
-
-pub async fn handler_item_delete(
-    Path(id): Path<u32>,
+pub async fn handler_unset_many(
+    Json(payload): Json<Vec<(String, Vec<u32>)>>,
     Extension(index): IndexExt,
     Extension(backend): BackendExt,
 ) -> StaticAPIResult {
-    let deleted = index.as_ref().write().await.remove_id(id);
-    let status_code =
-        if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
+    {
+        let mut idx = index.as_ref().write().await;
+        for (property, bits) in payload.iter() {
+            idx.unset_many(property, bits);
+        }
+    }
     flush(backend, index).await?;
-    Ok((status_code, ""))
+    Ok((StatusCode::OK, ""))
+}
+
+pub async fn handler_get_bit(
+    Path(bit): Path<u32>,
+    Extension(index): IndexExt,
+) -> JSONAPIResult<Vec<String>> {
+    let properties = index.as_ref().read().await.properties_with_bit(bit);
+    Ok((StatusCode::OK, Json(properties)))
+}
+
+pub async fn handler_delete_bit(
+    Path(bit): Path<u32>,
+    Extension(index): IndexExt,
+    Extension(backend): BackendExt,
+) -> StaticAPIResult {
+    index.as_ref().write().await.unset_all_bits(&[bit]);
+    flush(backend, index).await?;
+    Ok((StatusCode::OK, ""))
+}
+
+pub async fn handler_delete_bits(
+    Json(bits): Json<Vec<u32>>,
+    Extension(index): IndexExt,
+    Extension(backend): BackendExt,
+) -> StaticAPIResult {
+    index.as_ref().write().await.unset_all_bits(&bits);
+    flush(backend, index).await?;
+    Ok((StatusCode::OK, ""))
 }

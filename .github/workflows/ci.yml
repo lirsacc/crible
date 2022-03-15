@@ -1,6 +1,11 @@
-on: [push, pull_request]
-
 name: ci
+on:
+  push:
+  pull_request:
+    branches: [ master ]
+
+env:
+  RUST_BACKTRACE: 1
 
 jobs:
   rustfmt:
@@ -33,60 +38,33 @@ jobs:
       - name: Clippy
         run: cargo clippy
 
-  test:
+  tests:
     name: Tests
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          - macos-latest
+        toolchain:
+          - stable
+          - nightly
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
-      - name: Install stable toolchain
+      - name: Install (ubuntu) packages
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo ci/install-build-deps.sh
+      - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Build
         run: cargo build --locked --all-targets --verbose
       - name: Tests
         run: cargo test --no-fail-fast --locked --verbose
-
-  docker:
-    name: Docker build
-    needs: [test, rustfmt, clippy]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up QEMU
-        id: qemu
-        uses: docker/setup-qemu-action@v1
-        with:
-          image: tonistiigi/binfmt:latest
-          platforms: all
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-      - name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
-        with:
-          context: ./
-          file: ./Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64
-          push: false
-          tags: lirsacc/crible:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}

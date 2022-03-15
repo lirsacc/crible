@@ -3,8 +3,8 @@
 # Build image
 FROM rust:1.59-slim-bullseye as builder
 
-RUN apt-get update && apt-get install --yes --no-install-recommends \
-    libclang-dev
+COPY ./ci/install-build-deps.sh .
+RUN bash install-build-deps.sh
 
 RUN cargo new --bin crible
 WORKDIR /crible

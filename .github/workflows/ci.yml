@@ -83,7 +83,7 @@ jobs:
           context: ./
           file: ./Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: false
           tags: lirsacc/crible:latest
           cache-from: type=local,src=/tmp/.buildx-cache

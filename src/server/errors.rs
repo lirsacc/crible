@@ -7,13 +7,10 @@ use serde_json::json;
 
 use std::convert::From;
 
-use crate::expression::ExpressionError;
-use crate::index::IndexError;
-
 #[derive(Debug)]
 pub enum APIError {
-    Expression(ExpressionError),
-    Index(IndexError),
+    Expression(crate::expression::Error),
+    Index(crate::index::Error),
     Eyre(eyre::Report),
 }
 
@@ -21,14 +18,14 @@ impl IntoResponse for APIError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
             APIError::Expression(e) => match e {
-                ExpressionError::ParserError(_)
-                | ExpressionError::InvalidEndOfInput(_)
-                | ExpressionError::InputStringToolLong => {
+                crate::expression::Error::Invalid(_)
+                | crate::expression::Error::InvalidEndOfInput(_)
+                | crate::expression::Error::InputStringToolLong => {
                     (StatusCode::BAD_REQUEST, "Invalid query".to_owned())
                 }
             },
             APIError::Index(e) => match e {
-                IndexError::PropertyDoesNotExist(p) => (
+                crate::index::Error::PropertyDoesNotExist(p) => (
                     StatusCode::BAD_REQUEST,
                     format!("Property {} does not exist", p),
                 ),
@@ -47,14 +44,14 @@ impl IntoResponse for APIError {
     }
 }
 
-impl From<ExpressionError> for APIError {
-    fn from(e: ExpressionError) -> Self {
+impl From<crate::expression::Error> for APIError {
+    fn from(e: crate::expression::Error) -> Self {
         APIError::Expression(e)
     }
 }
 
-impl From<IndexError> for APIError {
-    fn from(e: IndexError) -> Self {
+impl From<crate::index::Error> for APIError {
+    fn from(e: crate::index::Error) -> Self {
         APIError::Index(e)
     }
 }

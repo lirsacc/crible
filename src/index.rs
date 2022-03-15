@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::expression::Expression;
 
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum IndexError {
+pub enum Error {
     #[error("property {0:?} does not exist")]
     PropertyDoesNotExist(String),
 }
@@ -80,7 +80,7 @@ impl Index {
         self.0
             .entry(property.to_owned())
             .or_insert_with(Bitmap::create)
-            .add_many(bits)
+            .add_many(bits);
     }
 
     pub fn unset(&mut self, property: &str, bit: u32) -> bool {
@@ -105,7 +105,7 @@ impl Index {
             self.into_iter()
                 .filter_map(|(k, v)| {
                     if v.contains(bit) {
-                        Some(k.to_owned())
+                        Some(k.clone())
                     } else {
                         None
                     }
@@ -117,17 +117,12 @@ impl Index {
 
     // Combine rows.
 
-    pub fn execute(
-        &self,
-        expression: &Expression,
-    ) -> Result<Bitmap, IndexError> {
+    pub fn execute(&self, expression: &Expression) -> Result<Bitmap, Error> {
         match expression {
             Expression::Root => Ok(self.root()),
             Expression::Property(name) => self
                 .get_property(name)
-                .ok_or_else(|| {
-                    IndexError::PropertyDoesNotExist(name.to_owned())
-                })
+                .ok_or_else(|| Error::PropertyDoesNotExist(name.clone()))
                 .cloned(),
             Expression::And(l, r) => {
                 Ok(self.execute(l.as_ref())?.and(&self.execute(r.as_ref())?))
@@ -176,7 +171,7 @@ fn _filter_map_cardinality(
 ) -> Option<(String, u64)> {
     let x = source.and_cardinality(v);
     if x > 0 {
-        Some((k.to_owned(), x))
+        Some((k.clone(), x))
     } else {
         None
     }

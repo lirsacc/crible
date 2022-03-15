@@ -4,10 +4,10 @@ use super::Backend;
 use crate::index::Index;
 
 #[derive(Default, Debug)]
-pub struct MemoryBackend(Index);
+pub struct Memory(Index);
 
 #[async_trait]
-impl Backend for MemoryBackend {
+impl Backend for Memory {
     async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report> {
         self.0 = index.clone();
         Ok(())

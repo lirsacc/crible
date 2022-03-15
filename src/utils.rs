@@ -5,7 +5,7 @@ use tracing_subscriber::{
 
 pub fn set_env_var_default(name: &str, default: &str) {
     if std::env::var(name).is_err() {
-        std::env::set_var(name, default)
+        std::env::set_var(name, default);
     }
 }
 

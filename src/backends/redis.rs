@@ -10,12 +10,12 @@ use crate::index::Index;
 const KEY_PREFIX: &str = "crible";
 
 #[derive(Debug)]
-pub struct RedisBackend {
+pub struct Redis {
     client: redis::Client,
     key: String,
 }
 
-impl RedisBackend {
+impl Redis {
     pub fn new(
         url: &url::Url,
         key: Option<String>,
@@ -28,7 +28,7 @@ impl RedisBackend {
 }
 
 #[async_trait]
-impl Backend for RedisBackend {
+impl Backend for Redis {
     async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report> {
         let mut pipe = redis::pipe();
         for (k, v) in &index.0 {

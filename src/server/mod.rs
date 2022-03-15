@@ -27,7 +27,7 @@ use crate::index::Index;
 mod api;
 mod errors;
 
-pub async fn run_server(
+pub async fn run(
     port: u16,
     index_handle: Arc<RwLock<Index>>,
     backend_handle: Arc<RwLock<Box<dyn Backend>>>,
@@ -44,15 +44,7 @@ pub async fn run_server(
         .route("/bit/:id", get(api::handler_get_bit));
 
     // TODO: Less verbose way to expose this?
-    if !read_only {
-        app = app
-            .route("/set", post(api::handler_set))
-            .route("/set-many", post(api::handler_set_many))
-            .route("/unset", post(api::handler_unset))
-            .route("/unset-many", post(api::handler_unset_many))
-            .route("/bit/:id", delete(api::handler_delete_bit))
-            .route("/bit", delete(api::handler_delete_bits));
-    } else {
+    if read_only {
         app = app
             .route("/set", post(api::handler_read_only))
             .route("/set-many", post(api::handler_read_only))
@@ -60,6 +52,14 @@ pub async fn run_server(
             .route("/unset-many", post(api::handler_read_only))
             .route("/bit/:id", delete(api::handler_read_only))
             .route("/bit", delete(api::handler_read_only));
+    } else {
+        app = app
+            .route("/set", post(api::handler_set))
+            .route("/set-many", post(api::handler_set_many))
+            .route("/unset", post(api::handler_unset))
+            .route("/unset-many", post(api::handler_unset_many))
+            .route("/bit/:id", delete(api::handler_delete_bit))
+            .route("/bit", delete(api::handler_delete_bits));
     }
 
     app = app.fallback(api::handler_404.into_service());
@@ -84,14 +84,14 @@ pub async fn run_server(
                         status = &res.status().as_u16(),
                         duration = &format!("{}μs", latency.as_micros()).as_str(),
                         "response sent"
-                    )
+                    );
                 })
                 .on_failure(
                     |_err: ServerErrorsFailureClass, latency: Duration, _: &Span| {
                         tracing::error!(
                             duration = &format!("{}μs", latency.as_micros()).as_str(),
                             "response failed"
-                        )
+                        );
                     },
                 ),
         )

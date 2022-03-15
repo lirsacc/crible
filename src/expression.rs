@@ -167,9 +167,9 @@ fn parse_expression(s: &str) -> IResult<&str, Expression> {
 }
 
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum ExpressionError {
+pub enum Error {
     #[error("parser error {0:?}")]
-    ParserError(String),
+    Invalid(String),
     #[error("invalid end of input {0:?}")]
     InvalidEndOfInput(String),
     #[error("input can't be longer than {MAX_LENGTH}")]
@@ -189,19 +189,19 @@ pub enum Expression {
 }
 
 impl Expression {
-    pub fn parse(input: &str) -> Result<Self, ExpressionError> {
+    pub fn parse(input: &str) -> Result<Self, Error> {
         if input.len() > MAX_LENGTH {
-            Err(ExpressionError::InputStringToolLong)
+            Err(Error::InputStringToolLong)
         } else {
             match parse_expression(input) {
                 Ok((rest, expression)) => {
                     if rest.is_empty() {
                         Ok(expression)
                     } else {
-                        Err(ExpressionError::InvalidEndOfInput(rest.to_owned()))
+                        Err(Error::InvalidEndOfInput(rest.to_owned()))
                     }
                 }
-                Err(e) => Err(ExpressionError::ParserError(format!("{}", e))),
+                Err(e) => Err(Error::Invalid(format!("{}", e))),
             }
         }
     }
@@ -270,7 +270,7 @@ impl Expression {
 }
 
 impl FromStr for Expression {
-    type Err = ExpressionError;
+    type Err = Error;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Expression::parse(value)
     }
@@ -279,7 +279,7 @@ impl FromStr for Expression {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::*;
+    use rstest::rstest;
 
     #[rstest]
     #[case("foo", ("", "foo"))]

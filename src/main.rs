@@ -1,7 +1,9 @@
 #![deny(unstable_features)]
+#![forbid(unsafe_code)]
 #![warn(
     clippy::print_stdout,
     clippy::mut_mut,
+    clippy::large_types_passed_by_value,
     trivial_casts,
     trivial_numeric_casts,
     unused_extern_crates,
@@ -122,7 +124,7 @@ async fn run_refresh_task(
                     }
                 }
                 .instrument(tracing::info_span!("refresh_index"))
-                .await
+                .await;
             }
         }
     }
@@ -164,7 +166,7 @@ async fn main() -> Result<(), Report> {
 
             tracing::info!("Starting server on port {:?}", port);
 
-            server::run_server(*port, index_handle, backend_handle, *read_only)
+            server::run(*port, index_handle, backend_handle, *read_only)
                 .await?;
 
             Ok(())

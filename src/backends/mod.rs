@@ -10,8 +10,8 @@ mod memory;
 mod redis;
 
 pub use self::jsonfs::JsonFSBackend;
-pub use self::memory::MemoryBackend;
-pub use self::redis::RedisBackend;
+pub use self::memory::Memory;
+pub use self::redis::Redis;
 
 #[async_trait]
 pub trait Backend: Send + Sync + std::fmt::Debug {
@@ -63,8 +63,10 @@ impl FromStr for BackendOptions {
                     .into_owned()
                     .collect::<HashMap<String, String>>();
                 url.set_query(None);
-                let key = query_pairs.get("key").map(|x| x.to_owned());
-                Ok(BackendOptions::Redis { url, key })
+                Ok(BackendOptions::Redis {
+                    url,
+                    key: query_pairs.get("key").cloned(),
+                })
             }
             x => Err(eyre::Report::msg(format!("Unknown scheme: {:?}", x))),
         }
@@ -74,14 +76,12 @@ impl FromStr for BackendOptions {
 impl BackendOptions {
     pub fn build(&self) -> Result<Box<dyn Backend>, eyre::Report> {
         Ok(match self {
-            Self::Memory => Box::new(MemoryBackend::default()),
+            Self::Memory => Box::new(Memory::default()),
             Self::Json(p) => Box::new(match p {
                 None => JsonFSBackend::default(),
                 Some(x) => JsonFSBackend::new(x),
             }),
-            Self::Redis { url, key } => {
-                Box::new(RedisBackend::new(url, key.to_owned())?)
-            }
+            Self::Redis { url, key } => Box::new(Redis::new(url, key.clone())?),
         })
     }
 }

@@ -30,14 +30,14 @@ impl JsonFSBackend {
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             x => x,
         }?;
-        tokio::fs::write(&tmp, &self.serialize(index)?).await?;
+        tokio::fs::write(&tmp, Self::serialize(index)?).await?;
         tokio::fs::rename(&tmp, &self.path).await?;
         Ok(())
     }
 
     pub async fn read(&self) -> Result<Index, eyre::Report> {
         match tokio::fs::read(&self.path).await {
-            Ok(bytes) => self.deserialize(&bytes),
+            Ok(bytes) => Self::deserialize(&bytes),
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let index = Index::default();
                 self.write(&index).await?;
@@ -47,9 +47,9 @@ impl JsonFSBackend {
         }
     }
 
-    pub fn serialize(&self, index: &Index) -> Result<String, eyre::Report> {
+    pub fn serialize(index: &Index) -> Result<String, eyre::Report> {
         let mut res = String::new();
-        for (k, v) in index.0.iter() {
+        for (k, v) in &index.0 {
             let element = (k, base64::encode(v.serialize()));
             res.push_str(&serde_json::to_string(&element)?);
             res.push('\n');
@@ -57,7 +57,7 @@ impl JsonFSBackend {
         Ok(res)
     }
 
-    pub fn deserialize(&self, bytes: &[u8]) -> Result<Index, eyre::Report> {
+    pub fn deserialize(bytes: &[u8]) -> Result<Index, eyre::Report> {
         let mut res: HashMap<String, Bitmap> = HashMap::new();
         for line in bytes.lines() {
             let line = line?;
@@ -65,7 +65,7 @@ impl JsonFSBackend {
                 break;
             }
             let (k, v): (String, String) = serde_json::from_str(&line)?;
-            res.insert(k.to_owned(), Bitmap::deserialize(&base64::decode(v)?));
+            res.insert(k.clone(), Bitmap::deserialize(&base64::decode(v)?));
         }
         Ok(Index::new(res))
     }

@@ -25,9 +25,9 @@ async fn flush(
     backend: BackendShared,
     index: IndexShared,
 ) -> Result<(), eyre::Report> {
-    let mut _backend = backend.as_ref().write().await;
-    let _index = index.as_ref().read().await;
-    _backend.dump(&_index).await
+    let mut backend = backend.as_ref().write().await;
+    let index = index.as_ref().read().await;
+    backend.dump(&index).await
 }
 
 pub async fn handler_home() -> impl IntoResponse {
@@ -58,11 +58,10 @@ pub struct QueryResponse {
     cardinalities: Option<HashMap<String, u64>>,
 }
 
-/// Run a query against the index.
-/// The result will include all unique elements matching the query and
-/// optionally (if include_cardinalities is provided and true) a map containing
-/// the cardinality of the intersection of the query and every property included
-/// in the index.
+/// Run a query against the index. The result will include all unique elements
+/// matching the query and optionally (if `include_cardinalities` is provided
+/// and true) a map containing the cardinality of the intersection of the query
+/// and every property included in the index.
 pub async fn handler_query(
     Json(payload): Json<QueryPayload>,
     Extension(index): IndexExt,
@@ -120,7 +119,7 @@ pub async fn handler_stats(
             root: idx.stats(),
             properties: idx
                 .into_iter()
-                .map(|(k, v)| (k.to_owned(), v.into()))
+                .map(|(k, v)| (k.clone(), v.into()))
                 .collect(),
         }),
     ))
@@ -152,7 +151,7 @@ pub async fn handler_set_many(
 ) -> StaticAPIResult {
     {
         let mut idx = index.as_ref().write().await;
-        for (property, bits) in payload.iter() {
+        for (property, bits) in &payload {
             idx.set_many(property, bits);
         }
     }
@@ -180,7 +179,7 @@ pub async fn handler_unset_many(
 ) -> StaticAPIResult {
     {
         let mut idx = index.as_ref().write().await;
-        for (property, bits) in payload.iter() {
+        for (property, bits) in &payload {
             idx.unset_many(property, bits);
         }
     }

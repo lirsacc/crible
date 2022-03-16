@@ -6,6 +6,8 @@
 name: release
 on:
   push:
+    branches:
+      - master
 
 jobs:
   binary-build:

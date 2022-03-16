@@ -7,7 +7,6 @@ on:
 jobs:
   docker:
     name: Docker build
-    needs: [test, rustfmt, clippy]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:

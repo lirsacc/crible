@@ -15,6 +15,7 @@ use tower_http::{
     catch_panic::CatchPanicLayer, classify::ServerErrorsFailureClass,
     trace::TraceLayer, ServiceBuilderExt,
 };
+use tracing::Instrument;
 use tracing::Span;
 
 use std::net::SocketAddr;
@@ -27,42 +28,42 @@ use crate::index::Index;
 mod api;
 mod errors;
 
-pub async fn run(
-    port: u16,
-    index_handle: Arc<RwLock<Index>>,
-    backend_handle: Arc<RwLock<Box<dyn Backend>>>,
+#[derive(Clone)]
+pub struct State {
     read_only: bool,
-) -> Result<(), Report> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    backend: Arc<RwLock<Box<dyn Backend>>>,
+    index: Arc<RwLock<Index>>,
+}
 
-    let mut app = Router::new()
+impl State {
+    pub fn new(
+        index: Index,
+        backend: Box<dyn Backend>,
+        read_only: bool,
+    ) -> Self {
+        State {
+            backend: Arc::new(RwLock::new(backend)),
+            index: Arc::new(RwLock::new(index)),
+            read_only,
+        }
+    }
+}
+
+pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
+    let app = Router::new()
         .route("/", get(api::handler_home))
         .route("/query", post(api::handler_query))
         .route("/count", post(api::handler_count))
         .route("/bitmap", post(api::handler_bitmap))
         .route("/stats", get(api::handler_stats))
-        .route("/bit/:id", get(api::handler_get_bit));
-
-    // TODO: Less verbose way to expose this?
-    if read_only {
-        app = app
-            .route("/set", post(api::handler_read_only))
-            .route("/set-many", post(api::handler_read_only))
-            .route("/unset", post(api::handler_read_only))
-            .route("/unset-many", post(api::handler_read_only))
-            .route("/bit/:id", delete(api::handler_read_only))
-            .route("/bit", delete(api::handler_read_only));
-    } else {
-        app = app
-            .route("/set", post(api::handler_set))
-            .route("/set-many", post(api::handler_set_many))
-            .route("/unset", post(api::handler_unset))
-            .route("/unset-many", post(api::handler_unset_many))
-            .route("/bit/:id", delete(api::handler_delete_bit))
-            .route("/bit", delete(api::handler_delete_bits));
-    }
-
-    app = app.fallback(api::handler_404.into_service());
+        .route("/set", post(api::handler_set))
+        .route("/set-many", post(api::handler_set_many))
+        .route("/unset", post(api::handler_unset))
+        .route("/unset-many", post(api::handler_unset_many))
+        .route("/bit/:id", get(api::handler_get_bit))
+        .route("/bit/:id", delete(api::handler_delete_bit))
+        .route("/bit", delete(api::handler_delete_bits))
+        .fallback(api::handler_not_found.into_service());
 
     let svc = ServiceBuilder::new()
         .set_x_request_id(RequestIdBuilder::default())
@@ -96,12 +97,11 @@ pub async fn run(
                 ),
         )
         .propagate_x_request_id()
-        .layer(Extension(index_handle))
-        .layer(Extension(backend_handle))
+        .layer(Extension(state))
         .layer(CatchPanicLayer::new())
         .service(app);
 
-    Server::bind(&addr)
+    Server::bind(addr)
         .serve(Shared::new(svc))
         .with_graceful_shutdown(crate::utils::shutdown_signal("server task"))
         .await
@@ -116,5 +116,44 @@ struct RequestIdBuilder();
 impl MakeRequestId for RequestIdBuilder {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
         Some(RequestId::new(ulid::Ulid::new().to_string().parse().unwrap()))
+    }
+}
+
+pub async fn run_refresh_task(state: State, every: Duration) {
+    tracing::info!(
+        "Starting refresh task. Will update backend every {:?}.",
+        every
+    );
+
+    let mut interval = tokio::time::interval(every);
+
+    loop {
+        tokio::select! {
+            _ = crate::utils::shutdown_signal("Backend task") => {
+                break;
+            },
+            _ = interval.tick() => {
+                async {
+                    match state.backend
+                        .as_ref()
+                        .write()
+                        .await
+                        .load()
+                        .instrument(tracing::info_span!("load_index"))
+                        .await
+                    {
+                        Ok(new_index) => {
+                            let mut index = state.index.as_ref().write().await;
+                            *index = new_index;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to load index data: {}", e);
+                        }
+                    }
+                }
+                .instrument(tracing::info_span!("refresh_index"))
+                .await;
+            }
+        }
     }
 }

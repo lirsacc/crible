@@ -9,6 +9,7 @@ use std::convert::From;
 
 #[derive(Debug)]
 pub enum APIError {
+    ReadOnly,
     Expression(crate::expression::Error),
     Index(crate::index::Error),
     Eyre(eyre::Report),
@@ -17,6 +18,10 @@ pub enum APIError {
 impl IntoResponse for APIError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
+            APIError::ReadOnly => (
+                StatusCode::FORBIDDEN,
+                "Server is in read-only mode".to_owned(),
+            ),
             APIError::Expression(e) => match e {
                 crate::expression::Error::Invalid(_)
                 | crate::expression::Error::InvalidEndOfInput(_)

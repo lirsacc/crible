@@ -13,11 +13,10 @@
 
 use clap::{Parser, Subcommand};
 use color_eyre::Report;
-use tokio::sync::RwLock;
 use tracing::Instrument;
 
 use std::io::Write;
-use std::sync::Arc;
+use std::net::SocketAddr;
 
 mod backends;
 mod expression;
@@ -25,9 +24,8 @@ mod index;
 mod server;
 mod utils;
 
-use crate::backends::{Backend, BackendOptions};
+use crate::backends::BackendOptions;
 use crate::expression::Expression;
-use crate::index::Index;
 
 #[cfg(not(debug_assertions))]
 const _DEFAULT_DEBUG: bool = false;
@@ -55,8 +53,13 @@ enum Command {
         #[clap(long = "backend", required = true, env = "CRIBLE_BACKEND")]
         backend_options: BackendOptions,
 
-        #[clap(short, long, env = "CRIBLE_PORT", default_value = "3000")]
-        port: u16,
+        #[clap(
+            short = 'l',
+            long = "listen",
+            env = "CRIBLE_BIND",
+            default_value = "127.0.0.1:3000"
+        )]
+        bind: String,
 
         /// Disable all write operations.
         #[clap(long, env = "CRIBLE_READ_ONLY")]
@@ -87,49 +90,6 @@ enum Command {
     },
 }
 
-async fn run_refresh_task(
-    backend_handle: Arc<RwLock<Box<dyn Backend>>>,
-    index_handle: Arc<RwLock<Index>>,
-    every: std::time::Duration,
-) {
-    tracing::info!(
-        "Starting refresh task. Will update backend every {:?}.",
-        every
-    );
-
-    let mut interval = tokio::time::interval(every);
-
-    loop {
-        tokio::select! {
-            _ = crate::utils::shutdown_signal("Backend task") => {
-                break;
-            },
-            _ = interval.tick() => {
-                async {
-                    match backend_handle
-                        .as_ref()
-                        .write()
-                        .await
-                        .load()
-                        .instrument(tracing::info_span!("load_index"))
-                        .await
-                    {
-                        Ok(new_index) => {
-                            let mut index = index_handle.as_ref().write().await;
-                            *index = new_index;
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to load index data: {}", e);
-                        }
-                    }
-                }
-                .instrument(tracing::info_span!("refresh_index"))
-                .await;
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     let cli = Cli::parse();
@@ -138,11 +98,13 @@ async fn main() -> Result<(), Report> {
 
     match &cli.command {
         Command::Serve {
-            port,
+            bind,
             backend_options,
             read_only,
             refresh_timeout,
         } => {
+            let addr: SocketAddr = bind.parse().expect("Invalid bind");
+
             let backend = backend_options.build().unwrap();
             let index = backend
                 .load()
@@ -150,24 +112,21 @@ async fn main() -> Result<(), Report> {
                 .await
                 .unwrap();
 
-            let backend_handle = Arc::new(RwLock::new(backend));
-            let index_handle = Arc::new(RwLock::new(index));
+            let state = server::State::new(index, backend, *read_only);
 
             if let Some(interval) = refresh_timeout {
                 if !read_only {
                     tracing::warn!("Background refresh enabled in write mode");
                 }
-                tokio::spawn(run_refresh_task(
-                    backend_handle.clone(),
-                    index_handle.clone(),
+                tokio::spawn(server::run_refresh_task(
+                    state.clone(),
                     std::time::Duration::from_millis(*interval),
                 ));
             }
 
-            tracing::info!("Starting server on port {:?}", port);
+            tracing::info!("Starting server on port {:?}", addr);
 
-            server::run(*port, index_handle, backend_handle, *read_only)
-                .await?;
+            server::run(&addr, state).await?;
 
             Ok(())
         }

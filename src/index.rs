@@ -100,7 +100,11 @@ impl Index {
         }
     }
 
-    pub fn properties_with_bit(&self, bit: u32) -> Vec<String> {
+    // Operations on all properties for a given bit.
+    // WARN: These are slow as given the structure the index we end up iterating
+    // over all properties.
+
+    pub fn get_properties_with_bit(&self, bit: u32) -> Vec<String> {
         let mut vec: Vec<String> =
             self.into_iter()
                 .filter_map(|(k, v)| {
@@ -115,7 +119,21 @@ impl Index {
         vec
     }
 
-    // Combine rows.
+    pub fn set_properties_with_bit(
+        &mut self,
+        bit: u32,
+        properties: &[String],
+    ) -> bool {
+        self.0.iter_mut().fold(false, |changed, (k, v)| {
+            (if !properties.contains(k) {
+                v.remove_checked(bit)
+            } else {
+                v.add_checked(bit)
+            }) || changed
+        })
+    }
+
+    // Run queries.
 
     pub fn execute(&self, expression: &Expression) -> Result<Bitmap, Error> {
         match expression {

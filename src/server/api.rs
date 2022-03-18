@@ -195,8 +195,25 @@ pub async fn handler_get_bit(
     Path(bit): Path<u32>,
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<Vec<String>> {
-    let properties = state.index.as_ref().read().await.properties_with_bit(bit);
+    let properties =
+        state.index.as_ref().read().await.get_properties_with_bit(bit);
     Ok((StatusCode::OK, Json(properties)))
+}
+
+pub async fn handler_set_bit(
+    Path(bit): Path<u32>,
+    Json(properties): Json<Vec<String>>,
+    Extension(state): Extension<State>,
+) -> JSONAPIResult<Vec<String>> {
+    let changed = state
+        .index
+        .as_ref()
+        .write()
+        .await
+        .set_properties_with_bit(bit, &properties);
+    let status_code =
+        if changed { StatusCode::OK } else { StatusCode::NO_CONTENT };
+    Ok((status_code, Json(properties)))
 }
 
 pub async fn handler_delete_bit(

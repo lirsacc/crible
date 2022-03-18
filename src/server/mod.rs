@@ -61,6 +61,7 @@ pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
         .route("/unset", post(api::handler_unset))
         .route("/unset-many", post(api::handler_unset_many))
         .route("/bit/:id", get(api::handler_get_bit))
+        .route("/bit/:id", post(api::handler_set_bit))
         .route("/bit/:id", delete(api::handler_delete_bit))
         .route("/bit", delete(api::handler_delete_bits))
         .fallback(api::handler_not_found.into_service());

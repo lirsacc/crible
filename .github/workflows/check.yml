@@ -1,6 +1,7 @@
-name: ci
+name: check
 on:
   push:
+    branches: [ master ]
   pull_request:
     branches: [ master ]
 
@@ -48,7 +49,8 @@ jobs:
           - macos-latest
         toolchain:
           - stable
-          - nightly
+          - beta
+          # - nightly
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sources

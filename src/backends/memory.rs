@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
+use crible_lib::index::Index;
+
 use super::Backend;
-use crate::index::Index;
 
 #[derive(Default, Debug)]
 pub struct Memory(Index);

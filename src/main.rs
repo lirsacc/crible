@@ -18,14 +18,13 @@ use tracing::Instrument;
 use std::io::Write;
 use std::net::SocketAddr;
 
+use crible_lib::expression::Expression;
+
 mod backends;
-mod expression;
-mod index;
 mod server;
 mod utils;
 
 use crate::backends::BackendOptions;
-use crate::expression::Expression;
 
 #[cfg(not(debug_assertions))]
 const _DEFAULT_DEBUG: bool = false;

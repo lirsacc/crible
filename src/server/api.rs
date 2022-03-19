@@ -8,8 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 
-use crate::expression::Expression;
-use crate::index::Stats;
+use crible_lib::{expression::Expression, index::Stats};
 
 use super::{errors::APIError, State};
 

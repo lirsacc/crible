@@ -20,30 +20,32 @@ use std::str::FromStr;
 
 const MAX_LENGTH: usize = 2048;
 
-/** Rough grammar for the nom parser:
- *
- * <property> = [A-Za-z][A-Za-z0-9-_\.\/\:]*
- *
- * <and-operation> = <term> \s+ { { "and" | "AND" } \s+ <term> }+
- * <or-operation> = <term> \s+ { { "or" | "OR" } \s+ <term> }+
- * <xor-operation> = <term> \s+ { { "xor" | "XOR" } \s+ <term> }+
- * <sub-operation> = <term> \s+ { { "-" } \s+ <term> }+
- *
- * <inverted> = "not" \s+ <expression>
- * <wrapped> = "(" \s* <expression> \s* ")"
- *
- * <subexpression> = <and-operation>
- *                 | <or-operation>
- *                 | <xor-operation>
- *                 | <sub-operation>
- *                 | <term>
- *
- * <term> = <inverted> | <wrapped> | <property>
- *
- * <root> = "*"
- *
- * <expression> = \s* { <root> | <subexpression> } \s*
-**/
+// Rough grammar for the nom parser
+// =======================================================================
+//
+// <property> = [A-Za-z][A-Za-z0-9-_\.\/\:]*
+//
+// <and-operation> = <term> \s+ { { "and" | "AND" } \s+ <term> }+
+// <or-operation> = <term> \s+ { { "or" | "OR" } \s+ <term> }+
+// <xor-operation> = <term> \s+ { { "xor" | "XOR" } \s+ <term> }+
+// <sub-operation> = <term> \s+ { { "-" } \s+ <term> }+
+//
+// <inverted> = "not" \s+ <expression>
+// <wrapped> = "(" \s* <expression> \s* ")"
+//
+// <subexpression> = <and-operation>
+//                 | <or-operation>
+//                 | <xor-operation>
+//                 | <sub-operation>
+//                 | <term>
+//
+// <term> = <inverted> | <wrapped> | <property>
+//
+// <root> = "*"
+//
+// <expression> = \s* { <root> | <subexpression> } \s*
+//
+// =======================================================================
 
 const KEYWORDS: [&str; 4] = ["not", "and", "xor", "or"];
 

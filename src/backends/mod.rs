@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use crate::index::Index;
+use crible_lib::index::Index;
 
 mod jsonfs;
 mod memory;

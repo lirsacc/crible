@@ -10,8 +10,8 @@ use std::convert::From;
 #[derive(Debug)]
 pub enum APIError {
     ReadOnly,
-    Expression(crate::expression::Error),
-    Index(crate::index::Error),
+    Expression(crible_lib::expression::Error),
+    Index(crible_lib::index::Error),
     Eyre(eyre::Report),
 }
 
@@ -23,14 +23,14 @@ impl IntoResponse for APIError {
                 "Server is in read-only mode".to_owned(),
             ),
             APIError::Expression(e) => match e {
-                crate::expression::Error::Invalid(_)
-                | crate::expression::Error::InvalidEndOfInput(_)
-                | crate::expression::Error::InputStringToolLong => {
+                crible_lib::expression::Error::Invalid(_)
+                | crible_lib::expression::Error::InvalidEndOfInput(_)
+                | crible_lib::expression::Error::InputStringToolLong => {
                     (StatusCode::BAD_REQUEST, "Invalid query".to_owned())
                 }
             },
             APIError::Index(e) => match e {
-                crate::index::Error::PropertyDoesNotExist(p) => (
+                crible_lib::index::Error::PropertyDoesNotExist(p) => (
                     StatusCode::BAD_REQUEST,
                     format!("Property {} does not exist", p),
                 ),
@@ -49,14 +49,14 @@ impl IntoResponse for APIError {
     }
 }
 
-impl From<crate::expression::Error> for APIError {
-    fn from(e: crate::expression::Error) -> Self {
+impl From<crible_lib::expression::Error> for APIError {
+    fn from(e: crible_lib::expression::Error) -> Self {
         APIError::Expression(e)
     }
 }
 
-impl From<crate::index::Error> for APIError {
-    fn from(e: crate::index::Error) -> Self {
+impl From<crible_lib::index::Error> for APIError {
+    fn from(e: crible_lib::index::Error) -> Self {
         APIError::Index(e)
     }
 }

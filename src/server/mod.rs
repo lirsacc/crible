@@ -22,8 +22,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crible_lib::index::Index;
+
 use crate::backends::Backend;
-use crate::index::Index;
 
 mod api;
 mod errors;

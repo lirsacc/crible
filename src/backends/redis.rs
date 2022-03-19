@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use croaring::Bitmap;
 use redis::AsyncCommands;
 
+use crible_lib::index::Index;
 use std::collections::HashMap;
 
 use super::Backend;
-use crate::index::Index;
 
 const KEY_PREFIX: &str = "crible";
 
@@ -31,7 +31,7 @@ impl Redis {
 impl Backend for Redis {
     async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report> {
         let mut pipe = redis::pipe();
-        for (k, v) in &index.0 {
+        for (k, v) in index.inner() {
             pipe.hset(&self.key, k, v.serialize());
         }
         let mut con = self.client.get_async_connection().await?;
@@ -42,7 +42,7 @@ impl Backend for Redis {
     async fn load(&self) -> Result<Index, eyre::Report> {
         let mut con = self.client.get_async_connection().await?;
         let data: HashMap<String, Vec<u8>> = con.hgetall(&self.key).await?;
-        Ok(Index(
+        Ok(Index::new(
             data.iter()
                 .map(|(k, v)| (k.clone(), Bitmap::deserialize(v)))
                 .collect(),

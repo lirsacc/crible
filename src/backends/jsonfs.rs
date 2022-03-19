@@ -3,8 +3,9 @@ use std::{collections::HashMap, io::BufRead};
 use async_trait::async_trait;
 use croaring::Bitmap;
 
+use crible_lib::index::Index;
+
 use super::Backend;
-use crate::index::Index;
 
 // TODO: Use buffered read and writes.
 
@@ -49,7 +50,7 @@ impl JsonFSBackend {
 
     pub fn serialize(index: &Index) -> Result<String, eyre::Report> {
         let mut res = String::new();
-        for (k, v) in &index.0 {
+        for (k, v) in index.inner() {
             let element = (k, base64::encode(v.serialize()));
             res.push_str(&serde_json::to_string(&element)?);
             res.push('\n');

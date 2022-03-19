@@ -14,7 +14,7 @@ pub enum Error {
 }
 
 #[derive(Clone, Default)]
-pub struct Index(pub(crate) HashMap<String, Bitmap>);
+pub struct Index(HashMap<String, Bitmap>);
 
 /// An Index is simply a very large bit-matrix where each row is an individual
 /// property and each column is unique element id represented by a bit on the
@@ -47,6 +47,10 @@ impl Index {
         } else {
             self.root().into()
         }
+    }
+
+    pub fn inner(&self) -> &HashMap<String, Bitmap> {
+        &self.0
     }
 
     // Operate on rows.
@@ -256,7 +260,6 @@ impl From<&Bitmap> for Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expression::Expression;
 
     #[test]
     fn simple_in() {

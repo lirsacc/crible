@@ -323,6 +323,7 @@ dependencies = [
  "base64",
  "clap 3.1.6",
  "color-eyre",
+ "crible-lib",
  "croaring",
  "eyre",
  "nom",
@@ -339,6 +340,18 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "url",
+]
+
+[[package]]
+name = "crible-lib"
+version = "0.1.0"
+dependencies = [
+ "croaring",
+ "nom",
+ "rstest",
+ "serde",
+ "serde_derive",
+ "thiserror",
 ]
 
 [[package]]
@@ -783,13 +796,12 @@ dependencies = [
 
 [[package]]
 name = "nom"
-version = "7.1.0"
+version = "7.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b1d11e1ef389c76fe5b81bcaf2ea32cf88b62bc494e19f493d0b30e7a930109"
+checksum = "a8903e5a29a317527874d0402f867152a3d21c908bb0b933e416c65e301d4c36"
 dependencies = [
  "memchr",
  "minimal-lexical",
- "version_check",
 ]
 
 [[package]]

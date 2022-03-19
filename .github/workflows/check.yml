@@ -67,6 +67,6 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Build
-        run: cargo build --locked --all-targets --verbose
+        run: cargo build --locked --all-targets --verbose --workspace
       - name: Tests
-        run: cargo test --no-fail-fast --locked --verbose
+        run: cargo test --no-fail-fast --locked --verbose --workspace

@@ -1,4 +1,9 @@
 *
+
 !src
 !Cargo*
+
+!crible-lib/Cargo*
+!crible-lib/src*
+
 !ci/*.sh

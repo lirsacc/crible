@@ -11,12 +11,21 @@ WORKDIR /crible
 
 # 1. Build only dependencies against an empty app
 COPY ./Cargo.lock ./Cargo.toml .
+
+COPY ./crible-lib/Cargo.toml crible-lib/
+RUN mkdir crible-lib/src && echo "fn main() { }" > crible-lib/src/main.rs;
+
 RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
 # 2. Build the app itself
-RUN rm src/*.rs
-COPY ./src ./src
+RUN \
+    rm src/*.rs \
+    crible-lib/src/*.rs
+
+COPY . .
+
 RUN rm ./target/release/deps/crible*
+
 RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
 # Runtime image

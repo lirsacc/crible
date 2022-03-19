@@ -28,7 +28,6 @@ A single index like this becomes useful when:
 - [ ] Benchmarking.
 - [ ] Tests.
 - [ ] Better logging + Proper error handling and reporting.
-- [ ] Relax parsing of expression to allow chains (A and B and C and ...) and not only balanced pairs.
 - [ ] Documentation.
 - [ ] Evaluate concurrent processing (e.g. compute cardinalities, multiple queries endpoint, etc.).
 - [ ] Support partial load, dump and refresh through backends. Ideally this could make things faster / stall less when only a subset of the index changes on every tick.

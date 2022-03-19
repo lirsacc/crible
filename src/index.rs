@@ -142,17 +142,34 @@ impl Index {
                 .get_property(name)
                 .ok_or_else(|| Error::PropertyDoesNotExist(name.clone()))
                 .cloned(),
-            Expression::And(l, r) => {
-                Ok(self.execute(l.as_ref())?.and(&self.execute(r.as_ref())?))
+            Expression::And(inner) => {
+                let mut res: Bitmap = self.execute(&inner[0])?;
+                for e in &inner[1..] {
+                    // TODO: Would it be cheaper to break here if one is empty?
+                    res.and_inplace(&self.execute(e)?)
+                }
+                Ok(res)
             }
-            Expression::Or(l, r) => {
-                Ok(self.execute(l.as_ref())?.or(&self.execute(r.as_ref())?))
+            Expression::Or(inner) => {
+                let mut inner_executed = Vec::with_capacity(inner.len());
+                for x in inner {
+                    inner_executed.push(self.execute(x)?);
+                }
+                Ok(Bitmap::fast_or(&inner_executed.iter().collect::<Vec<_>>()))
             }
-            Expression::Xor(l, r) => {
-                Ok(self.execute(l.as_ref())?.xor(&self.execute(r.as_ref())?))
+            Expression::Xor(inner) => {
+                let mut inner_executed = Vec::with_capacity(inner.len());
+                for x in inner {
+                    inner_executed.push(self.execute(x)?);
+                }
+                Ok(Bitmap::fast_xor(&inner_executed.iter().collect::<Vec<_>>()))
             }
-            Expression::Sub(l, r) => {
-                Ok(self.execute(l.as_ref())?.andnot(&self.execute(r.as_ref())?))
+            Expression::Sub(inner) => {
+                let mut res: Bitmap = self.execute(&inner[0])?;
+                for e in &inner[1..] {
+                    res.andnot_inplace(&self.execute(e)?)
+                }
+                Ok(res)
             }
             Expression::Not(e) => Ok(self.root() - self.execute(e.as_ref())?),
         }

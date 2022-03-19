@@ -109,8 +109,7 @@ jobs:
       - name: Install Cross
         if: matrix.build.cargo == 'cross'
         run: |
-          # cargo install --force --git https://github.com/cross-rs/cross cross
-          cargo install cross
+          cargo install --force --git https://github.com/cross-rs/cross cross
       - name: Build release binary
         run: |
           export TARGET_DIR="./target/${{ matrix.build.target }}"

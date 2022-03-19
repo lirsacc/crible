@@ -65,8 +65,13 @@ enum Command {
         read_only: bool,
 
         /// Refresh interval in milliseconds
-        #[clap(long = "refresh", env = "CRIBLE_REFRESH")]
+        #[clap(long = "refresh", env = "CRIBLE_REFRESH_TIMEOUT")]
         refresh_timeout: Option<u64>,
+
+        /// Flush interval in milliseconds. 0 or absent means flush on write;
+        /// incompatible with --read-only.
+        #[clap(long = "flush", env = "CRIBLE_FLUSH_TIMEOUT")]
+        flush_timeout: Option<u64>,
     },
     /// Execute a single query against the index.
     Query {
@@ -101,8 +106,12 @@ async fn main() -> Result<(), Report> {
             backend_options,
             read_only,
             refresh_timeout,
+            flush_timeout,
         } => {
             let addr: SocketAddr = bind.parse().expect("Invalid bind");
+
+            let in_write_mode = flush_timeout.is_some() || !read_only;
+            let flush_on_write = flush_timeout.map_or(!*read_only, |x| x == 0);
 
             let backend = backend_options.build().unwrap();
             let index = backend
@@ -111,15 +120,25 @@ async fn main() -> Result<(), Report> {
                 .await
                 .unwrap();
 
-            let state = server::State::new(index, backend, *read_only);
+            let state =
+                server::State::new(index, backend, *read_only, flush_on_write);
 
             if let Some(interval) = refresh_timeout {
-                if !read_only {
-                    tracing::warn!("Background refresh enabled in write mode");
+                if in_write_mode {
+                    tracing::warn!(
+                        "Background refresh enabled in write mode. This is generally unsafe as backends are not guaranteed to be transactional."
+                    );
                 }
                 tokio::spawn(server::run_refresh_task(
                     state.clone(),
                     std::time::Duration::from_millis(*interval),
+                ));
+            }
+
+            if in_write_mode && !flush_on_write {
+                tokio::spawn(server::run_flush_task(
+                    state.clone(),
+                    std::time::Duration::from_millis(flush_timeout.unwrap()),
                 ));
             }
 

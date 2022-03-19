@@ -10,16 +10,8 @@ use std::collections::HashMap;
 
 use crible_lib::{expression::Expression, index::Stats};
 
+use super::readwrite::handle_write;
 use super::{errors::APIError, State};
-
-async fn flush(state: &State) -> Result<(), eyre::Report> {
-    if state.read_only {
-        return Ok(());
-    };
-    let mut backend = state.backend.as_ref().write().await;
-    let index = state.index.as_ref().read().await;
-    backend.dump(&index).await
-}
 
 pub async fn handler_home() -> impl IntoResponse {
     format!("Crible Server {}", env!("CARGO_PKG_VERSION"))
@@ -130,7 +122,7 @@ pub async fn handler_set(
         state.index.as_ref().write().await.set(&payload.property, payload.bit);
     let status_code =
         if added { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((status_code, ""))
 }
 
@@ -148,7 +140,7 @@ pub async fn handler_set_many(
             idx.set_many(property, bits);
         }
     }
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }
 
@@ -168,7 +160,7 @@ pub async fn handler_unset(
         .unset(&payload.property, payload.bit);
     let status_code =
         if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((status_code, ""))
 }
 
@@ -186,7 +178,7 @@ pub async fn handler_unset_many(
             idx.unset_many(property, bits);
         }
     }
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }
 
@@ -224,7 +216,7 @@ pub async fn handler_delete_bit(
     }
 
     state.index.as_ref().write().await.unset_all(&[bit]);
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }
 
@@ -237,6 +229,6 @@ pub async fn handler_delete_bits(
     }
 
     state.index.as_ref().write().await.unset_all(&bits);
-    flush(&state).await?;
+    handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }

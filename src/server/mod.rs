@@ -15,11 +15,10 @@ use tower_http::{
     catch_panic::CatchPanicLayer, classify::ServerErrorsFailureClass,
     trace::TraceLayer, ServiceBuilderExt,
 };
-use tracing::Instrument;
 use tracing::Span;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 
 use crible_lib::index::Index;
@@ -28,12 +27,17 @@ use crate::backends::Backend;
 
 mod api;
 mod errors;
+mod readwrite;
+
+pub use readwrite::{run_flush_task, run_refresh_task};
 
 #[derive(Clone)]
 pub struct State {
     read_only: bool,
+    flush_on_write: bool,
     backend: Arc<RwLock<Box<dyn Backend>>>,
     index: Arc<RwLock<Index>>,
+    write_count: Arc<AtomicU64>,
 }
 
 impl State {
@@ -41,11 +45,14 @@ impl State {
         index: Index,
         backend: Box<dyn Backend>,
         read_only: bool,
+        flush_on_write: bool,
     ) -> Self {
         State {
             backend: Arc::new(RwLock::new(backend)),
             index: Arc::new(RwLock::new(index)),
             read_only,
+            flush_on_write,
+            write_count: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -118,44 +125,5 @@ struct RequestIdBuilder();
 impl MakeRequestId for RequestIdBuilder {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
         Some(RequestId::new(ulid::Ulid::new().to_string().parse().unwrap()))
-    }
-}
-
-pub async fn run_refresh_task(state: State, every: Duration) {
-    tracing::info!(
-        "Starting refresh task. Will update backend every {:?}.",
-        every
-    );
-
-    let mut interval = tokio::time::interval(every);
-
-    loop {
-        tokio::select! {
-            _ = crate::utils::shutdown_signal("Backend task") => {
-                break;
-            },
-            _ = interval.tick() => {
-                async {
-                    match state.backend
-                        .as_ref()
-                        .write()
-                        .await
-                        .load()
-                        .instrument(tracing::info_span!("load_index"))
-                        .await
-                    {
-                        Ok(new_index) => {
-                            let mut index = state.index.as_ref().write().await;
-                            *index = new_index;
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to load index data: {}", e);
-                        }
-                    }
-                }
-                .instrument(tracing::info_span!("refresh_index"))
-                .await;
-            }
-        }
     }
 }

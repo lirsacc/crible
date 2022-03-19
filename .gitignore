@@ -3,4 +3,6 @@
 .envrc
 .direnv
 
+*.json
+
 .vscode

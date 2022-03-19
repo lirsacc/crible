@@ -103,7 +103,7 @@ pub async fn handler_stats(
     Ok((
         StatusCode::OK,
         Json(StatsResponse {
-            root: idx.stats(),
+            root: (&*idx).into(),
             properties: idx
                 .into_iter()
                 .map(|(k, v)| (k.clone(), v.into()))
@@ -203,7 +203,7 @@ pub async fn handler_set_bit(
     Path(bit): Path<u32>,
     Json(properties): Json<Vec<String>>,
     Extension(state): Extension<State>,
-) -> JSONAPIResult<Vec<String>> {
+) -> StaticAPIResult {
     let changed = state
         .index
         .as_ref()
@@ -212,7 +212,7 @@ pub async fn handler_set_bit(
         .set_properties_with_bit(bit, &properties);
     let status_code =
         if changed { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    Ok((status_code, Json(properties)))
+    Ok((status_code, ""))
 }
 
 pub async fn handler_delete_bit(
@@ -223,7 +223,7 @@ pub async fn handler_delete_bit(
         return Err(APIError::ReadOnly);
     }
 
-    state.index.as_ref().write().await.unset_all_bits(&[bit]);
+    state.index.as_ref().write().await.unset_all(&[bit]);
     flush(&state).await?;
     Ok((StatusCode::OK, ""))
 }
@@ -236,7 +236,7 @@ pub async fn handler_delete_bits(
         return Err(APIError::ReadOnly);
     }
 
-    state.index.as_ref().write().await.unset_all_bits(&bits);
+    state.index.as_ref().write().await.unset_all(&bits);
     flush(&state).await?;
     Ok((StatusCode::OK, ""))
 }

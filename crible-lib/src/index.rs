@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::convert::From;
+use std::convert::{From, Into};
 
 use croaring::Bitmap;
 use serde_derive::Serialize;
@@ -28,27 +28,77 @@ impl Index {
         Self(data)
     }
 
+    pub fn of<T>(value: T) -> Self
+    where
+        for<'a> &'a T: IntoIterator<Item = &'a (&'static str, Vec<u32>)>,
+    {
+        Self::new(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.to_owned().to_owned(), Bitmap::of(v)))
+                .collect(),
+        )
+    }
+
+    /// Return the number of unique properties covered by the index.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let index = Index::default();
+    /// assert_eq!(index.len(), 0);
+    ///
+    /// let index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 4]),
+    ///     ("bar", vec![5, 6, 7]),
+    ///     ("baz", vec![8, 9]),
+    /// ]);
+    /// assert_eq!(index.len(), 3);
+    /// ```
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Return the number of unique properties covered by the index.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let index = Index::default();
+    /// assert!(index.is_empty());
+    ///
+    /// let index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 4]),
+    ///     ("bar", vec![5, 6, 7]),
+    ///     ("baz", vec![8, 9]),
+    /// ]);
+    /// assert!(!index.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    // TODO: Could we cache this internally?
+    /// Return a Bitmap containing all values in the index..
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let index = Index::default();
+    /// assert!(index.root().is_empty());
+    ///
+    /// let index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 4]),
+    ///     ("bar", vec![5, 6, 7]),
+    ///     ("baz", vec![8, 9]),
+    /// ]);
+    /// assert_eq!(index.root().to_vec(), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    /// ```
     pub fn root(&self) -> Bitmap {
+        // TODO: Could we cache this internally?
         Bitmap::fast_or(&self.0.values().collect::<Vec<&Bitmap>>())
     }
 
-    pub fn stats(&self) -> Stats {
-        if self.is_empty() {
-            Stats::default()
-        } else {
-            self.root().into()
-        }
-    }
-
+    /// Access the inner hashmap.
     pub fn inner(&self) -> &HashMap<String, Bitmap> {
         &self.0
     }
@@ -73,6 +123,18 @@ impl Index {
 
     // Operate on individual bits.
 
+    /// Set a bit for a single property. Returns whether the bit was not already set.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::default();
+    ///
+    /// assert!(index.set("foo", 1));
+    /// assert!(!index.set("foo", 1));
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![1]);
+    /// ```
     pub fn set(&mut self, property: &str, bit: u32) -> bool {
         self.0
             .entry(property.to_owned())
@@ -80,6 +142,17 @@ impl Index {
             .add_checked(bit)
     }
 
+    /// Set multiple bits for a single property.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::default();
+    ///
+    /// index.set_many("foo", &vec![1, 2, 3, 4]);
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![1, 2, 3, 4]);
+    /// ```
     pub fn set_many(&mut self, property: &str, bits: &[u32]) {
         self.0
             .entry(property.to_owned())
@@ -87,17 +160,83 @@ impl Index {
             .add_many(bits);
     }
 
+    /// Set multiple bits from a all properties.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::of([
+    ///     ("foo", vec![1, 4]),
+    ///     ("bar", vec![5, 6, 7]),
+    ///     ("baz", vec![8, 9]),
+    /// ]);
+    ///
+    /// index.set_all(&vec![2, 3]);
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![1, 2, 3, 4]);
+    /// assert_eq!(index.get_property("bar").unwrap().to_vec(), vec![2, 3, 5, 6, 7]);
+    /// assert_eq!(index.get_property("baz").unwrap().to_vec(), vec![2, 3, 8, 9]);
+    /// ```
+    pub fn set_all(&mut self, bits: &[u32]) {
+        let mask = Bitmap::of(bits);
+        for bm in self.0.values_mut() {
+            bm.or_inplace(&mask);
+        }
+    }
+
+    /// Unset a bit for a single property. Returns whether the bit was present.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::default();
+    ///
+    /// index.set_many("foo", &vec![1, 2, 3, 4]);
+    /// assert!(index.unset("foo", 1));
+    /// assert!(!index.unset("foo", 1));
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![2, 3, 4]);
+    /// ```
     pub fn unset(&mut self, property: &str, bit: u32) -> bool {
         self.0.get_mut(property).map_or(false, |bm| bm.remove_checked(bit))
     }
 
+    /// Unset multiple bits from a single property.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::default();
+    ///
+    /// index.set_many("foo", &vec![1, 2, 3, 4]);
+    /// index.unset_many("foo", &vec![1, 4]);
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![2, 3]);
+    /// ```
     pub fn unset_many(&mut self, property: &str, bits: &[u32]) {
         if let Some(bm) = self.0.get_mut(property) {
             bm.andnot_inplace(&Bitmap::of(bits));
         }
     }
 
-    pub fn unset_all_bits(&mut self, bits: &[u32]) {
+    /// Unset multiple bits from a all properties.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 4]),
+    ///     ("bar", vec![1, 2, 3, 5, 6, 7]),
+    ///     ("baz", vec![4, 8, 9]),
+    /// ]);
+    ///
+    /// index.unset_all(&vec![2, 3, 4]);
+    ///
+    /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![1]);
+    /// assert_eq!(index.get_property("bar").unwrap().to_vec(), vec![1, 5, 6, 7]);
+    /// assert_eq!(index.get_property("baz").unwrap().to_vec(), vec![8, 9]);
+    /// ```
+    pub fn unset_all(&mut self, bits: &[u32]) {
         let mask = Bitmap::of(bits);
         for bm in self.0.values_mut() {
             bm.andnot_inplace(&mask);
@@ -105,9 +244,22 @@ impl Index {
     }
 
     // Operations on all properties for a given bit.
-    // WARN: These are slow as given the structure the index we end up iterating
-    // over all properties.
 
+    /// List all properties where `bit` is set.
+    ///
+    /// WARN: This can be slow as it iterates over the entire index.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let index = Index::of([
+    ///     ("foo", vec![1, 2, 3]),
+    ///     ("bar", vec![1, 3, 4]),
+    ///     ("baz", vec![2, 3, 4]),
+    /// ]);
+    ///
+    /// assert_eq!(index.get_properties_with_bit(2), vec!["baz", "foo"]);
+    /// ```
     pub fn get_properties_with_bit(&self, bit: u32) -> Vec<String> {
         let mut vec: Vec<String> =
             self.into_iter()
@@ -123,13 +275,30 @@ impl Index {
         vec
     }
 
-    pub fn set_properties_with_bit(
+    /// Set `bit` for all given properties and remove it from all others.
+    ///
+    /// WARN: This can be slow as it iterates over the entire index.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    ///
+    /// let mut index = Index::of([
+    ///     ("foo", vec![1, 2, 3]),
+    ///     ("bar", vec![1, 3, 4]),
+    ///     ("baz", vec![2, 3, 4]),
+    /// ]);
+    ///
+    /// index.set_properties_with_bit(8, &vec!["foo", "bar"].iter().map(|s| s.to_owned()).collect::<Vec<_>>());
+    /// assert_eq!(index.get_properties_with_bit(8), vec!["bar", "foo"]);
+    /// ```
+    pub fn set_properties_with_bit<T: AsRef<str>>(
         &mut self,
         bit: u32,
-        properties: &[String],
+        properties: &[T],
     ) -> bool {
+        let c: Vec<&str> = properties.iter().map(|x| x.as_ref()).collect();
         self.0.iter_mut().fold(false, |changed, (k, v)| {
-            (if !properties.contains(k) {
+            (if !c.contains(&k.as_ref()) {
                 v.remove_checked(bit)
             } else {
                 v.add_checked(bit)
@@ -139,6 +308,53 @@ impl Index {
 
     // Run queries.
 
+    /// Execute a query against the index.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    /// # use std::str::FromStr;
+    ///
+    /// let mut index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 6]),
+    ///     ("bar", vec![1, 3, 4, 7]),
+    ///     ("baz", vec![3, 4, 5, 7]),
+    /// ]);
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"*".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![1, 2, 3, 4, 5, 6, 7],
+    /// );
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"foo".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![1, 2, 3, 6],
+    /// );
+    ///
+    /// assert!(
+    ///     index.execute(&"unknown".parse().unwrap()).is_err()
+    /// );
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"foo and bar".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![1, 3],
+    /// );
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"foo or bar".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![1, 2, 3, 4, 6, 7],
+    /// );
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"foo xor bar".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![2, 4, 6, 7],
+    /// );
+    ///
+    /// assert_eq!(
+    ///     index.execute(&"foo - bar".parse().unwrap()).unwrap().to_vec(),
+    ///     vec![2, 6],
+    /// );
+    /// ```
+    ///
     pub fn execute(&self, expression: &Expression) -> Result<Bitmap, Error> {
         match expression {
             Expression::Root => Ok(self.root()),
@@ -179,6 +395,33 @@ impl Index {
         }
     }
 
+    /// Compute the cardinality of a given Bitmap with all other Bitmaps in the
+    /// index. This is mostly useful to filter which properties still have
+    /// result after executing a predicate.
+    ///
+    /// ```
+    /// # use crible_lib::index::Index;
+    /// # use std::str::FromStr;
+    /// # use std::collections::HashMap;
+    ///
+    /// let mut index = Index::of([
+    ///     ("foo", vec![1, 2, 3, 6]),
+    ///     ("bar", vec![1, 3, 4, 7]),
+    ///     ("baz", vec![3, 4, 5, 7]),
+    /// ]);
+    ///
+    /// let res = index.execute(&"foo and bar".parse().unwrap()).unwrap();
+    ///
+    /// let unprefixed = index.cardinalities(&res, None);
+    /// assert_eq!(*unprefixed.get("foo").unwrap(), 2);
+    /// assert_eq!(*unprefixed.get("bar").unwrap(), 2);
+    /// assert_eq!(*unprefixed.get("baz").unwrap(), 1);
+    ///
+    /// let prefixed = index.cardinalities(&res, Some("ba"));
+    /// assert!(prefixed.get("foo").is_none());
+    /// assert_eq!(*prefixed.get("bar").unwrap(), 2);
+    /// assert_eq!(*prefixed.get("baz").unwrap(), 1);
+    /// ```
     pub fn cardinalities(
         &self,
         source: &Bitmap,
@@ -232,7 +475,7 @@ impl<'a> IntoIterator for &'a Index {
     }
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Default, PartialEq)]
 pub struct Stats {
     pub cardinality: u64,
     pub minimum: Option<u32>,
@@ -241,6 +484,12 @@ pub struct Stats {
 
 impl From<Bitmap> for Stats {
     fn from(bm: Bitmap) -> Self {
+        (&bm).into()
+    }
+}
+
+impl From<&Bitmap> for Stats {
+    fn from(bm: &Bitmap) -> Self {
         Self {
             cardinality: bm.cardinality(),
             minimum: bm.minimum(),
@@ -249,9 +498,15 @@ impl From<Bitmap> for Stats {
     }
 }
 
-impl From<&Bitmap> for Stats {
-    fn from(bm: &Bitmap) -> Self {
-        bm.into()
+impl From<Index> for Stats {
+    fn from(index: Index) -> Self {
+        (&index).into()
+    }
+}
+
+impl From<&Index> for Stats {
+    fn from(index: &Index) -> Self {
+        Self::from(index.root())
     }
 }
 
@@ -260,80 +515,64 @@ impl From<&Bitmap> for Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn simple_in() {
-        let mut index = Index::default();
-        index.set("foo:0", 42);
-        let matches = index
-            .execute(&Expression::parse("foo:0").unwrap())
-            .unwrap()
-            .to_vec();
+    // macro_rules! assert_query {
+    //     ($index:expr, $value:expr, $expected:expr) => {
+    //         assert_eq!(
+    //             $index
+    //                 .execute(&Expression::parse($value).unwrap())
+    //                 .unwrap()
+    //                 .to_vec(),
+    //             $expected,
+    //         );
+    //     };
+    // }
 
-        assert_eq!(matches, vec![42]);
+    #[rstest]
+    #[case("*", &[1, 2, 3, 4, 5, 6, 7, 8, 9])]
+    #[case("foo", &[1, 2, 3, 4, 9])]
+    #[case("not foo", &[5, 6, 7, 8])]
+    #[case("!!foo", &[1, 2, 3, 4, 9])]
+    #[case("foo and bar", &[1, 3])]
+    #[case("bar and baz", &[6])]
+    #[case("foo or bar", &[1, 2, 3, 4, 5, 6, 7, 9])]
+    #[case("foo xor bar", &[2, 4, 5, 6, 7, 9])]
+    #[case("foo and not bar", &[2, 4, 9])]
+    #[case("not foo and bar", &[5, 6, 7])]
+    #[case("not (foo and bar)", &[2, 4, 5, 6, 7, 8, 9])]
+    #[case("(foo and bar) or baz", &[1, 3, 4, 6, 8, 9])]
+    #[case("foo - (bar and baz) - (foo xor bar)", &[1, 3])]
+    #[case("baz - foo - bar", &[8])]
+    fn test_queries(#[case] input: &str, #[case] expected: &[u32]) {
+        let index = Index::of([
+            ("foo", vec![1, 2, 3, 4, 9]),
+            ("bar", vec![1, 3, 5, 6, 7]),
+            ("baz", vec![4, 6, 8, 9]),
+        ]);
+        let res = index.execute(&input.parse().unwrap()).unwrap();
+        assert_eq!(&res.to_vec(), expected);
     }
 
     #[test]
-    fn simple_and() {
-        let mut index = Index::default();
-        index.set("foo:0", 42);
-        index.set("foo:0", 43);
-        index.set("foo:1", 42);
-        index.set("foo:1", 44);
+    fn test_stats() {
+        assert_eq!(Stats::default(), Index::default().into());
+        assert_eq!(Stats::default(), Bitmap::default().into());
 
-        let matches = index
-            .execute(&Expression::parse("(foo:0 AND foo:1)").unwrap())
-            .unwrap()
-            .to_vec();
+        let index = Index::of([
+            ("foo", vec![1, 2, 3, 4, 9]),
+            ("bar", vec![1, 3, 5, 6, 7]),
+            ("baz", vec![4, 6, 8, 9]),
+        ]);
 
-        assert_eq!(matches, vec![42]);
-    }
+        assert_eq!(
+            Stats { cardinality: 9, minimum: Some(1), maximum: Some(9) },
+            (&index).into()
+        );
 
-    #[test]
-    fn simple_or() {
-        let mut index = Index::default();
-        index.set("foo:0", 42);
-        index.set("foo:0", 43);
-        index.set("foo:1", 42);
-        index.set("foo:1", 44);
-
-        let matches = index
-            .execute(&Expression::parse("(foo:0 OR foo:1)").unwrap())
-            .unwrap()
-            .to_vec();
-
-        assert_eq!(matches, vec![42, 43, 44]);
-    }
-
-    #[test]
-    fn simple_sub() {
-        let mut index = Index::default();
-        index.set("foo:0", 42);
-        index.set("foo:0", 43);
-        index.set("foo:1", 42);
-        index.set("foo:1", 44);
-
-        let matches = index
-            .execute(&Expression::parse("(foo:0 - foo:1)").unwrap())
-            .unwrap()
-            .to_vec();
-
-        assert_eq!(matches, vec![43]);
-    }
-
-    #[test]
-    fn simple_not() {
-        let mut index = Index::default();
-        index.set("foo:0", 42);
-        index.set("foo:0", 43);
-        index.set("foo:1", 42);
-        index.set("foo:1", 44);
-
-        let matches = index
-            .execute(&Expression::parse("NOT foo:0").unwrap())
-            .unwrap()
-            .to_vec();
-
-        assert_eq!(matches, vec![44]);
+        assert_eq!(
+            &Stats { cardinality: 5, minimum: Some(1), maximum: Some(9) },
+            &index.get_property("foo").unwrap().into(),
+        );
     }
 }

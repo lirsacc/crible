@@ -77,3 +77,60 @@ pub fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
     add_extension(&mut pb, "tmp");
     pb
 }
+
+// Munge a url in a filesystem path.
+// This is not great and makes many, likely wrong assumptions about paths but it
+// allows a consistent and fairly ergonomic interface between backends.
+// Handling of explicit file:// urls would be nice as well.
+pub fn single_path_from_url(
+    url: &url::Url,
+) -> Result<Option<std::path::PathBuf>, eyre::Report> {
+    let mut parts = std::path::PathBuf::new();
+
+    if let Some(host) = url.host() {
+        match host {
+            url::Host::Domain(d) => parts.push(d),
+            _ => {
+                return Err(eyre::Report::msg(format!(
+                    "Cannot extract single path from {:?}",
+                    url
+                )))
+            }
+        }
+    }
+
+    let raw_path = &url.path();
+    if raw_path.len() > 1 {
+        // Drop leading /
+        parts.push(&raw_path[1..]);
+    }
+
+    if parts.as_os_str().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(parts))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_path_from_url;
+    use rstest::*;
+    use std::str::FromStr;
+
+    #[rstest]
+    #[case("fs://index.bin", Some("index.bin"))]
+    #[case("fs://index.bin/", Some("index.bin"))]
+    #[case("fs://datasets/index.bin", Some("datasets/index.bin"))]
+    #[case("fs://datasets.com/index.bin", Some("datasets.com/index.bin"))]
+    fn test_single_path_from_url(
+        #[case] value: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        let url: url::Url = url::Url::from_str(value).unwrap();
+        assert_eq!(
+            single_path_from_url(&url).unwrap(),
+            expected.map(|x| x.into())
+        );
+    }
+}

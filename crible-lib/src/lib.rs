@@ -11,5 +11,10 @@
     unused_qualifications
 )]
 
+pub mod encoding;
 pub mod expression;
 pub mod index;
+
+pub use encoding::Encoder;
+pub use expression::Expression;
+pub use index::Index;

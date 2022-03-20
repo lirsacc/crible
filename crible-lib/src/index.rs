@@ -13,7 +13,7 @@ pub enum Error {
     PropertyDoesNotExist(String),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Index(HashMap<String, Bitmap>);
 
 /// An Index is simply a very large bit-matrix where each row is an individual
@@ -28,14 +28,15 @@ impl Index {
         Self(data)
     }
 
-    pub fn of<T>(value: T) -> Self
+    pub fn of<T, S>(value: T) -> Self
     where
-        for<'a> &'a T: IntoIterator<Item = &'a (&'static str, Vec<u32>)>,
+        S: AsRef<str>,
+        for<'a> &'a T: IntoIterator<Item = &'a (S, Vec<u32>)>,
     {
         Self::new(
             value
                 .into_iter()
-                .map(|(k, v)| (k.to_owned().to_owned(), Bitmap::of(v)))
+                .map(|(k, v)| (k.as_ref().to_owned(), Bitmap::of(v)))
                 .collect(),
         )
     }

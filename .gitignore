@@ -4,7 +4,14 @@ crible-*/target
 .envrc
 .direnv
 
-*.json
+/*.bin
+/*.crible
+/*.csv
+/*.gz
+/*.json
+/*.ndjson
+/*.zip
+
 
 .vscode
 

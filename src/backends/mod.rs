@@ -3,13 +3,13 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use crible_lib::index::Index;
+use crible_lib::{Encoder, Index};
 
-mod jsonfs;
+mod fs;
 mod memory;
 mod redis;
 
-pub use self::jsonfs::JsonFSBackend;
+pub use self::fs::FSBackend;
 pub use self::memory::Memory;
 pub use self::redis::Redis;
 
@@ -23,49 +23,49 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BackendOptions {
     Memory,
-    Json(Option<std::path::PathBuf>),
-    Redis { url: url::Url, key: Option<String> },
-}
-
-fn single_path_from_url(
-    url: &url::Url,
-) -> Result<Option<std::path::PathBuf>, eyre::Report> {
-    match (url.host(), url.path()) {
-        (None, "") => Ok(None),
-        (Some(host), "") => match host {
-            url::Host::Domain(d) => Ok(Some(d.into())),
-            _ => Err(eyre::Report::msg(format!(
-                "Cannot extrat single path from {:?}",
-                url
-            ))),
-        },
-        (_, path) => {
-            let path = &path[1..]; // Drop leading /
-            if path.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(path.into()))
-            }
-        }
-    }
+    Fs { path: std::path::PathBuf, encoder: Encoder },
+    Redis { url: url::Url, key: String },
 }
 
 impl FromStr for BackendOptions {
     type Err = eyre::Report;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let mut url = url::Url::parse(value)?;
+        let query_pairs =
+            url.query_pairs().into_owned().collect::<HashMap<String, String>>();
         match url.scheme() {
-            "json" => Ok(BackendOptions::Json(single_path_from_url(&url)?)),
+            "fs" => {
+                let path = crate::utils::single_path_from_url(&url)?
+                    .unwrap_or_else(|| "data.bin".into());
+                let encoder = match query_pairs.get("format") {
+                    None => match path.extension() {
+                        None => Encoder::Bin,
+                        Some(ext) => match ext.to_str() {
+                            Some(x) => {
+                                Encoder::from_str(x).unwrap_or(Encoder::Bin)
+                            }
+                            None => {
+                                return Err(eyre::Report::msg(format!(
+                                    "Invalid path {:?}",
+                                    &path
+                                )));
+                            }
+                        },
+                    },
+                    Some(format_str) => Encoder::from_str(format_str.as_ref())?,
+                };
+
+                Ok(BackendOptions::Fs { path, encoder })
+            }
             "memory" => Ok(BackendOptions::Memory),
             "redis" => {
-                let query_pairs = url
-                    .query_pairs()
-                    .into_owned()
-                    .collect::<HashMap<String, String>>();
                 url.set_query(None);
                 Ok(BackendOptions::Redis {
                     url,
-                    key: query_pairs.get("key").cloned(),
+                    key: query_pairs
+                        .get("key")
+                        .cloned()
+                        .unwrap_or_else(|| "crible".to_owned()),
                 })
             }
             x => Err(eyre::Report::msg(format!("Unknown scheme: {:?}", x))),
@@ -77,10 +77,9 @@ impl BackendOptions {
     pub fn build(&self) -> Result<Box<dyn Backend>, eyre::Report> {
         Ok(match self {
             Self::Memory => Box::new(Memory::default()),
-            Self::Json(p) => Box::new(match p {
-                None => JsonFSBackend::default(),
-                Some(x) => JsonFSBackend::new(x),
-            }),
+            Self::Fs { path, encoder } => {
+                Box::new(FSBackend::new(path, *encoder))
+            }
             Self::Redis { url, key } => Box::new(Redis::new(url, key.clone())?),
         })
     }

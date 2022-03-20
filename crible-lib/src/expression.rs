@@ -73,6 +73,10 @@ fn parse_property(s: &str) -> IResult<&str, Expression> {
     )(s)
 }
 
+pub(crate) fn validate_property_name(s: &str) -> bool {
+    parse_property(s).map_or(false, |(rest, _)| rest.is_empty())
+}
+
 // Operations (and, xor, or) are pairs of terms separated with a fixed operator.
 // The main consequence of this is that we do not support mixed operators in the
 // same operation, e.g. "A and B or C" would require disambiguating through
@@ -342,6 +346,7 @@ mod tests {
             parse_property(value).unwrap(),
             (result.0, Expression::property(result.1))
         );
+        assert!(validate_property_name(value));
     }
 
     #[rstest]
@@ -352,6 +357,7 @@ mod tests {
     #[case("/foo")]
     fn parse_invalid_property(#[case] value: &str) {
         assert!(parse_property(value).is_err());
+        assert!(!validate_property_name(value));
     }
 
     #[rstest]

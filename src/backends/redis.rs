@@ -7,8 +7,6 @@ use std::collections::HashMap;
 
 use super::Backend;
 
-const KEY_PREFIX: &str = "crible";
-
 #[derive(Debug)]
 pub struct Redis {
     client: redis::Client,
@@ -16,14 +14,8 @@ pub struct Redis {
 }
 
 impl Redis {
-    pub fn new(
-        url: &url::Url,
-        key: Option<String>,
-    ) -> Result<Self, eyre::Report> {
-        Ok(Self {
-            client: redis::Client::open(url.to_string())?,
-            key: key.unwrap_or_else(|| KEY_PREFIX.to_owned()),
-        })
+    pub fn new(url: &url::Url, key: String) -> Result<Self, eyre::Report> {
+        Ok(Self { client: redis::Client::open(url.to_string())?, key })
     }
 }
 

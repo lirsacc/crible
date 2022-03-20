@@ -1,7 +1,11 @@
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
 use tokio::signal;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
+use url::{Host, Url};
 
 pub fn set_env_var_default(name: &str, default: &str) {
     if std::env::var(name).is_err() {
@@ -57,10 +61,7 @@ pub async fn shutdown_signal(ctx: &'static str) {
     }
 }
 
-pub fn add_extension(
-    path: &mut std::path::PathBuf,
-    extension: impl AsRef<std::path::Path>,
-) {
+pub fn add_extension<T: AsRef<OsStr>>(path: &mut PathBuf, extension: T) {
     match path.extension() {
         Some(ext) => {
             let mut ext = ext.to_os_string();
@@ -72,8 +73,8 @@ pub fn add_extension(
     };
 }
 
-pub fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
-    let mut pb = path.to_path_buf();
+pub fn tmp_path<T: AsRef<Path>>(path: &T) -> PathBuf {
+    let mut pb = path.as_ref().to_path_buf();
     add_extension(&mut pb, "tmp");
     pb
 }
@@ -83,13 +84,13 @@ pub fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
 // allows a consistent and fairly ergonomic interface between backends.
 // Handling of explicit file:// urls would be nice as well.
 pub fn single_path_from_url(
-    url: &url::Url,
-) -> Result<Option<std::path::PathBuf>, eyre::Report> {
-    let mut parts = std::path::PathBuf::new();
+    url: &Url,
+) -> Result<Option<PathBuf>, eyre::Report> {
+    let mut parts = PathBuf::new();
 
     if let Some(host) = url.host() {
         match host {
-            url::Host::Domain(d) => parts.push(d),
+            Host::Domain(d) => parts.push(d),
             _ => {
                 return Err(eyre::Report::msg(format!(
                     "Cannot extract single path from {:?}",
@@ -116,7 +117,9 @@ pub fn single_path_from_url(
 mod tests {
     use super::single_path_from_url;
     use rstest::*;
+
     use std::str::FromStr;
+    use url::Url;
 
     #[rstest]
     #[case("fs://index.bin", Some("index.bin"))]
@@ -127,7 +130,7 @@ mod tests {
         #[case] value: &str,
         #[case] expected: Option<&str>,
     ) {
-        let url: url::Url = url::Url::from_str(value).unwrap();
+        let url: Url = Url::from_str(value).unwrap();
         assert_eq!(
             single_path_from_url(&url).unwrap(),
             expected.map(|x| x.into())

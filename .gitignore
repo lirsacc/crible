@@ -1,4 +1,5 @@
 /target
+crible-*/target
 
 .envrc
 .direnv
@@ -6,3 +7,5 @@
 *.json
 
 .vscode
+
+.coverage

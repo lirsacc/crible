@@ -96,6 +96,9 @@ impl Index {
     /// ```
     pub fn root(&self) -> Bitmap {
         // TODO: Could we cache this internally?
+        // Just iterating is actually slightly faster at low property counts but
+        // given the gain is relatively small it's better overall to use
+        // fast_or.
         Bitmap::fast_or(&self.0.values().collect::<Vec<&Bitmap>>())
     }
 
@@ -392,6 +395,8 @@ impl Index {
                 }
                 Ok(res)
             }
+            // TODO: Is there a version using `flip()` which is faster? As root
+            // can be slow on a large index.
             Expression::Not(e) => Ok(self.root() - self.execute(e.as_ref())?),
         }
     }

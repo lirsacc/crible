@@ -10,6 +10,8 @@ This is a prototype for a very simple search index system exposed over HTTP.
 - The core of this solution is to use [Roaring Bitmaps](https://roaringbitmap.org) (through [`croaring-rs`](https://github.com/saulius/croaring-rs)) to efficiently store a bitmap per indexed property. This should ensure we can manage a pretty large index before the single machine limitation breaks down.
 - It pretty similar to something like [Pilosa](https://www.pilosa.com) although targetting a different scale of data.
 
+It's also a practical and fairly small project to dive in Rust for production.
+
 ## Use cases
 
 This is mostly a quick prototype but the idea is that it should fit in the narrow path where using your regular databases won't cut it but setting up amd managing a full-on search system is too heavy handed operationally + you don't need full text search.
@@ -22,10 +24,15 @@ A single index like this becomes useful when:
 - the indexed space is too large to fit comfortably and consistently in memory
 - you need search over data coming from multiple sources
 
+This is not useful when you need:
+
+- Full text search
+- Querying against unknown properties (e.g. 'where tag like "postgresql-9*"`)
+
 
 ## TODO / Next steps
 
-- [ ] Benchmarking.
+- [ ] Benchmarking and test 64 bits support and impact.
 - [ ] Tests.
 - [ ] Better logging + Proper error handling and reporting.
 - [ ] Documentation.
@@ -33,3 +40,4 @@ A single index like this becomes useful when:
 - [ ] Support partial load, dump and refresh through backends. Ideally this could make things faster / stall less when only a subset of the index changes on every tick.
 - [ ] Postgres backend.
 - [ ] Evaluate subscription based backends (vs. current poll approach).
+- [ ] Evaluate more schema capabilities / field types. E.g. integer type destructured into individual or range encoded bitmaps.

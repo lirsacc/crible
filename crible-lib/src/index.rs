@@ -381,18 +381,30 @@ impl Index {
                 Ok(res)
             }
             Expression::Or(inner) => {
-                let mut inner_executed = Vec::with_capacity(inner.len());
-                for x in inner {
-                    inner_executed.push(self.execute(x)?);
+                if inner.len() == 2 {
+                    Ok(self.execute(&inner[0])?.or(&self.execute(&inner[1])?))
+                } else {
+                    let mut inner_executed = Vec::with_capacity(inner.len());
+                    for x in inner {
+                        inner_executed.push(self.execute(x)?);
+                    }
+                    Ok(Bitmap::fast_or(
+                        &inner_executed.iter().collect::<Vec<_>>(),
+                    ))
                 }
-                Ok(Bitmap::fast_or(&inner_executed.iter().collect::<Vec<_>>()))
             }
             Expression::Xor(inner) => {
-                let mut inner_executed = Vec::with_capacity(inner.len());
-                for x in inner {
-                    inner_executed.push(self.execute(x)?);
+                if inner.len() == 2 {
+                    Ok(self.execute(&inner[0])?.xor(&self.execute(&inner[1])?))
+                } else {
+                    let mut inner_executed = Vec::with_capacity(inner.len());
+                    for x in inner {
+                        inner_executed.push(self.execute(x)?);
+                    }
+                    Ok(Bitmap::fast_xor(
+                        &inner_executed.iter().collect::<Vec<_>>(),
+                    ))
                 }
-                Ok(Bitmap::fast_xor(&inner_executed.iter().collect::<Vec<_>>()))
             }
             Expression::Sub(inner) => {
                 let mut res: Bitmap = self.execute(&inner[0])?;

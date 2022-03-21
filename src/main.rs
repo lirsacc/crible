@@ -166,14 +166,16 @@ async fn main() -> Result<(), Report> {
             let from_backend = from.build().unwrap();
             let mut to_backend = to.build().unwrap();
             to_backend.clear().await.unwrap();
+            let mut index = from_backend
+                .load()
+                .instrument(tracing::debug_span!("load_index"))
+                .await
+                .unwrap();
+
+            index.optimize();
+
             to_backend
-                .dump(
-                    &from_backend
-                        .load()
-                        .instrument(tracing::debug_span!("load_index"))
-                        .await
-                        .unwrap(),
-                )
+                .dump(&index)
                 .instrument(tracing::debug_span!("dump_index"))
                 .await
                 .unwrap();

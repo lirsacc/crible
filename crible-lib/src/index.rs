@@ -125,6 +125,12 @@ impl Index {
         self.0.clear();
     }
 
+    pub fn optimize(&mut self) {
+        for v in self.0.values_mut() {
+            v.run_optimize();
+        }
+    }
+
     // Operate on individual bits.
 
     /// Set a bit for a single property. Returns whether the bit was not already set.

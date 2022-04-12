@@ -7,7 +7,6 @@ use axum::{
     Router, Server,
 };
 use color_eyre::Report;
-use tokio::sync::RwLock;
 use tower::make::Shared;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestId, RequestId};
@@ -18,7 +17,7 @@ use tower_http::{
 use tracing::Span;
 
 use std::net::SocketAddr;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::{atomic::AtomicU64, Arc, RwLock};
 use std::time::Duration;
 
 use crible_lib::index::Index;
@@ -35,7 +34,7 @@ pub use readwrite::{run_flush_task, run_refresh_task};
 pub struct State {
     read_only: bool,
     flush_on_write: bool,
-    backend: Arc<RwLock<Box<dyn Backend>>>,
+    backend: Arc<Box<dyn Backend>>,
     index: Arc<RwLock<Index>>,
     write_count: Arc<AtomicU64>,
 }
@@ -48,7 +47,7 @@ impl State {
         flush_on_write: bool,
     ) -> Self {
         Self {
-            backend: Arc::new(RwLock::new(backend)),
+            backend: Arc::new(backend),
             index: Arc::new(RwLock::new(index)),
             read_only,
             flush_on_write,

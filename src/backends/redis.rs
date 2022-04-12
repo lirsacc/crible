@@ -21,7 +21,7 @@ impl Redis {
 
 #[async_trait]
 impl Backend for Redis {
-    async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report> {
+    async fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
         let mut pipe = redis::pipe();
         for (k, v) in index.inner() {
             pipe.hset(&self.key, k, v.serialize());
@@ -41,7 +41,7 @@ impl Backend for Redis {
         ))
     }
 
-    async fn clear(&mut self) -> Result<(), eyre::Report> {
+    async fn clear(&self) -> Result<(), eyre::Report> {
         let mut con = self.client.get_async_connection().await?;
         con.del(&self.key).await?;
         Ok(())

@@ -46,7 +46,7 @@ pub async fn handler_query(
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<QueryResponse> {
     let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read().await;
+    let idx = state.index.as_ref().read().unwrap();
     let bm = idx.execute(&expr)?;
     Ok((
         StatusCode::OK,
@@ -66,7 +66,7 @@ pub async fn handler_count(
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<u64> {
     let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read().await;
+    let idx = state.index.as_ref().read().unwrap();
     let bm = idx.execute(&expr)?;
     Ok((StatusCode::OK, Json(bm.cardinality())))
 }
@@ -77,7 +77,7 @@ pub async fn handler_bitmap(
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<String> {
     let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read().await;
+    let idx = state.index.as_ref().read().unwrap();
     let bm = idx.execute(&expr)?;
     Ok((StatusCode::OK, Json(base64::encode(bm.serialize()))))
 }
@@ -91,7 +91,7 @@ pub struct StatsResponse {
 pub async fn handler_stats(
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<StatsResponse> {
-    let idx = state.index.as_ref().read().await;
+    let idx = state.index.as_ref().read().unwrap();
     Ok((
         StatusCode::OK,
         Json(StatsResponse {
@@ -118,8 +118,12 @@ pub async fn handler_set(
         return Err(APIError::ReadOnly);
     }
 
-    let added =
-        state.index.as_ref().write().await.set(&payload.property, payload.bit);
+    let added = state
+        .index
+        .as_ref()
+        .write()
+        .unwrap()
+        .set(&payload.property, payload.bit);
     let status_code =
         if added { StatusCode::OK } else { StatusCode::NO_CONTENT };
     handle_write(&state).await?;
@@ -135,7 +139,7 @@ pub async fn handler_set_many(
     }
 
     {
-        let mut idx = state.index.as_ref().write().await;
+        let mut idx = state.index.as_ref().write().unwrap();
         for (property, bits) in &payload {
             idx.set_many(property, bits);
         }
@@ -156,7 +160,7 @@ pub async fn handler_unset(
         .index
         .as_ref()
         .write()
-        .await
+        .unwrap()
         .unset(&payload.property, payload.bit);
     let status_code =
         if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
@@ -173,7 +177,7 @@ pub async fn handler_unset_many(
     }
 
     {
-        let mut idx = state.index.as_ref().write().await;
+        let mut idx = state.index.as_ref().write().unwrap();
         for (property, bits) in &payload {
             idx.unset_many(property, bits);
         }
@@ -187,7 +191,7 @@ pub async fn handler_get_bit(
     Extension(state): Extension<State>,
 ) -> JSONAPIResult<Vec<String>> {
     let properties =
-        state.index.as_ref().read().await.get_properties_with_bit(bit);
+        state.index.as_ref().read().unwrap().get_properties_with_bit(bit);
     Ok((StatusCode::OK, Json(properties)))
 }
 
@@ -200,7 +204,7 @@ pub async fn handler_set_bit(
         .index
         .as_ref()
         .write()
-        .await
+        .unwrap()
         .set_properties_with_bit(bit, &properties);
     let status_code =
         if changed { StatusCode::OK } else { StatusCode::NO_CONTENT };
@@ -215,7 +219,7 @@ pub async fn handler_delete_bit(
         return Err(APIError::ReadOnly);
     }
 
-    state.index.as_ref().write().await.unset_all(&[bit]);
+    state.index.as_ref().write().unwrap().unset_all(&[bit]);
     handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }
@@ -228,7 +232,7 @@ pub async fn handler_delete_bits(
         return Err(APIError::ReadOnly);
     }
 
-    state.index.as_ref().write().await.unset_all(&bits);
+    state.index.as_ref().write().unwrap().unset_all(&bits);
     handle_write(&state).await?;
     Ok((StatusCode::OK, ""))
 }

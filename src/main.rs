@@ -164,7 +164,7 @@ async fn main() -> Result<(), Report> {
         }
         Command::Copy { from, to } => {
             let from_backend = from.build().unwrap();
-            let mut to_backend = to.build().unwrap();
+            let to_backend = to.build().unwrap();
             to_backend.clear().await.unwrap();
             let mut index = from_backend
                 .load()

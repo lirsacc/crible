@@ -16,8 +16,8 @@ pub use self::redis::Redis;
 #[async_trait]
 pub trait Backend: Send + Sync + std::fmt::Debug {
     async fn load(&self) -> Result<Index, eyre::Report>;
-    async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report>;
-    async fn clear(&mut self) -> Result<(), eyre::Report>;
+    async fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report>;
+    async fn clear(&self) -> Result<(), eyre::Report>;
 }
 
 #[derive(Debug, PartialEq, Eq)]

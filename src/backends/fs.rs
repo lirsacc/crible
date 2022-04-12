@@ -57,7 +57,7 @@ impl FSBackend {
 
 #[async_trait]
 impl Backend for FSBackend {
-    async fn dump<'a>(&mut self, index: &Index) -> Result<(), eyre::Report> {
+    async fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
         self.write(index).await
     }
 
@@ -65,7 +65,7 @@ impl Backend for FSBackend {
         self.read().await
     }
 
-    async fn clear(&mut self) -> Result<(), eyre::Report> {
+    async fn clear(&self) -> Result<(), eyre::Report> {
         match tokio::fs::remove_file(&self.path).await {
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             x => x,

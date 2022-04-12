@@ -9,9 +9,12 @@ pub async fn flush(state: &State) -> Result<(), eyre::Report> {
         return Ok(());
     }
 
-    let mut backend = state.backend.as_ref().write().await;
-    let index = state.index.as_ref().read().await;
-    backend.dump(&index).instrument(tracing::debug_span!("dump_index")).await?;
+    let index = state.index.as_ref().read().unwrap().clone();
+    state
+        .backend
+        .dump(&index)
+        .instrument(tracing::debug_span!("dump_index"))
+        .await?;
     state.write_count.store(0, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
@@ -46,15 +49,12 @@ pub async fn run_refresh_task(state: State, every: Duration) {
             _ = interval.tick() => {
                 async {
                     match state.backend
-                        .as_ref()
-                        .read()
-                        .await
                         .load()
                         .instrument(tracing::debug_span!("load_index"))
                         .await
                     {
                         Ok(new_index) => {
-                            let mut index = state.index.as_ref().write().await;
+                            let mut index = state.index.as_ref().write().unwrap();
                             *index = new_index;
                             tracing::info!("Refreshed index.");
                         }

@@ -41,3 +41,5 @@ This is not useful when you need:
 - [ ] Postgres backend.
 - [ ] Evaluate subscription based backends (vs. current poll approach).
 - [ ] Evaluate more schema capabilities / field types. E.g. integer type destructured into individual or range encoded bitmaps.
+- [ ] Look at using [roaring-rs](https://github.com/RoaringBitmap/roaring-rs) instead the [croaring wrapper](https://github.com/saulius/croaring-rs).
+- [ ] Better performance for `not` operations.

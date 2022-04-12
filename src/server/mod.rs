@@ -47,7 +47,7 @@ impl State {
         read_only: bool,
         flush_on_write: bool,
     ) -> Self {
-        State {
+        Self {
             backend: Arc::new(RwLock::new(backend)),
             index: Arc::new(RwLock::new(index)),
             read_only,
@@ -55,6 +55,19 @@ impl State {
             write_count: Arc::new(AtomicU64::new(0)),
         }
     }
+}
+
+#[inline]
+fn x_request_id<T>(request: &Request<T>) -> String {
+    request
+        .headers()
+        .get(HeaderName::from_static("x-request-id"))
+        .map_or("".to_owned(), |hv| hv.to_str().unwrap_or("").to_owned())
+}
+
+#[inline]
+fn format_latency(latency: Duration) -> String {
+    format!("{}μs", latency.as_micros())
 }
 
 pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
@@ -83,23 +96,29 @@ pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
                         "request",
                         method = %request.method(),
                         uri = %request.uri(),
-                        request_id = ?request.headers().get(HeaderName::from_static("x-request-id")).map_or("".to_owned(), |hv| hv.to_str().unwrap_or("").to_owned()),
+                        request_id = ?x_request_id(request),
                     )
                 })
-                .on_request(|_: &Request<_>, _: &Span| tracing::debug!("request received"))
+                .on_request(|_: &Request<_>, _: &Span| {
+                    tracing::debug!("request received")
+                })
                 .on_body_chunk(())
                 .on_eos(())
-                .on_response(|res: &Response<_>, latency: Duration, _: &Span| {
-                    tracing::info!(
-                        status = &res.status().as_u16(),
-                        duration = &format!("{}μs", latency.as_micros()).as_str(),
-                        "response sent"
-                    );
-                })
+                .on_response(
+                    |res: &Response<_>, latency: Duration, _: &Span| {
+                        tracing::info!(
+                            status = &res.status().as_u16(),
+                            duration = format_latency(latency).as_str(),
+                            "response sent"
+                        );
+                    },
+                )
                 .on_failure(
-                    |_err: ServerErrorsFailureClass, latency: Duration, _: &Span| {
+                    |_err: ServerErrorsFailureClass,
+                     latency: Duration,
+                     _: &Span| {
                         tracing::error!(
-                            duration = &format!("{}μs", latency.as_micros()).as_str(),
+                            duration = format_latency(latency).as_str(),
                             "response failed"
                         );
                     },

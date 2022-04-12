@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::State;
 
-pub async fn do_write(state: &State) -> Result<(), eyre::Report> {
+pub async fn flush(state: &State) -> Result<(), eyre::Report> {
     if state.write_count.load(std::sync::atomic::Ordering::SeqCst) == 0 {
         return Ok(());
     }
@@ -17,12 +17,17 @@ pub async fn do_write(state: &State) -> Result<(), eyre::Report> {
 }
 
 pub async fn handle_write(state: &State) -> Result<(), eyre::Report> {
-    state.write_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    if state.read_only || !state.flush_on_write {
+    if state.read_only {
         return Ok(());
-    };
+    }
 
-    do_write(state).await
+    state.write_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    if !state.flush_on_write {
+        Ok(())
+    } else {
+        flush(state).await
+    }
 }
 
 pub async fn run_refresh_task(state: State, every: Duration) {
@@ -77,13 +82,13 @@ pub async fn run_flush_task(state: State, every: Duration) {
             },
             _ = interval.tick() => {
                 async {
-                    match do_write(&state).await
+                    match flush(&state).await
                     {
                         Ok(_) => {
                             tracing::info!("Flushed index.");
                         }
                         Err(e) => {
-                            tracing::error!("Failed to load index data: {}", e);
+                            tracing::error!("Failed to flush index data: {}", e);
                         }
                     }
                 }

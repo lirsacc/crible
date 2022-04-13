@@ -7,6 +7,7 @@ use axum::{
     Router, Server,
 };
 use color_eyre::Report;
+use parking_lot::RwLock;
 use tower::make::Shared;
 use tower::ServiceBuilder;
 use tower_http::request_id::{MakeRequestId, RequestId};
@@ -17,7 +18,7 @@ use tower_http::{
 use tracing::Span;
 
 use std::net::SocketAddr;
-use std::sync::{atomic::AtomicU64, Arc, RwLock};
+use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 
 use crible_lib::index::Index;

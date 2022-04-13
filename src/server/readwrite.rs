@@ -9,7 +9,7 @@ pub async fn flush(state: &State) -> Result<(), eyre::Report> {
         return Ok(());
     }
 
-    let index = state.index.as_ref().read().unwrap().clone();
+    let index = state.index.as_ref().read().clone();
     state
         .backend
         .dump(&index)
@@ -54,7 +54,7 @@ pub async fn run_refresh_task(state: State, every: Duration) {
                         .await
                     {
                         Ok(new_index) => {
-                            let mut index = state.index.as_ref().write().unwrap();
+                            let mut index = state.index.as_ref().write();
                             *index = new_index;
                             tracing::info!("Refreshed index.");
                         }

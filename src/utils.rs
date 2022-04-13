@@ -17,9 +17,9 @@ pub fn setup_logging(debug: bool) {
     if debug {
         set_env_var_default("RUST_LIB_BACKTRACE", "1");
         set_env_var_default("RUST_BACKTRACE", "1");
-        set_env_var_default("RUST_LOG", "crible=debug");
+        set_env_var_default("RUST_LOG", "info,crible=debug,crible_lib=debug");
     } else {
-        set_env_var_default("RUST_LOG", "crible=info");
+        set_env_var_default("RUST_LOG", "warn,crible=info,crible_lib=info");
     }
 
     if debug {

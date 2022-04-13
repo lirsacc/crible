@@ -92,6 +92,7 @@ pub async fn run_flush_task(state: State, every: Duration) {
                         }
                     }
                 }
+                .instrument(tracing::info_span!("flush_index"))
                 .await;
             }
         }

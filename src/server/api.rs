@@ -71,17 +71,6 @@ pub async fn handler_count(
     Ok((StatusCode::OK, Json(bm.cardinality())))
 }
 
-/// Get the base64 encoded Bitmap for a query.
-pub async fn handler_bitmap(
-    Json(payload): Json<QueryPayload>,
-    Extension(state): Extension<State>,
-) -> JSONAPIResult<String> {
-    let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read().unwrap();
-    let bm = idx.execute(&expr)?;
-    Ok((StatusCode::OK, Json(base64::encode(bm.serialize()))))
-}
-
 #[derive(Serialize)]
 pub struct StatsResponse {
     root: Stats,

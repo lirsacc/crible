@@ -74,7 +74,6 @@ pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
         .route("/", get(api::handler_home))
         .route("/query", post(api::handler_query))
         .route("/count", post(api::handler_count))
-        .route("/bitmap", post(api::handler_bitmap))
         .route("/stats", get(api::handler_stats))
         .route("/set", post(api::handler_set))
         .route("/set-many", post(api::handler_set_many))

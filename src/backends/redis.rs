@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use croaring::Bitmap;
+use eyre::Context;
 use redis::AsyncCommands;
 
 use crible_lib::index::Index;
@@ -15,7 +16,12 @@ pub struct Redis {
 
 impl Redis {
     pub fn new(url: &url::Url, key: String) -> Result<Self, eyre::Report> {
-        Ok(Self { client: redis::Client::open(url.to_string())?, key })
+        Ok(Self {
+            client: redis::Client::open(url.to_string()).wrap_err_with(
+                || format!("Failed to create Redis client for `{}`", &url),
+            )?,
+            key,
+        })
     }
 }
 

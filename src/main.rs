@@ -13,6 +13,7 @@
 
 use clap::{Parser, Subcommand};
 use color_eyre::Report;
+use eyre::Context;
 use tracing::Instrument;
 
 use std::io::Write;
@@ -97,7 +98,6 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     let cli = Cli::parse();
-
     utils::setup_logging(cli.debug.unwrap_or(_DEFAULT_DEBUG));
 
     match &cli.command {
@@ -108,17 +108,21 @@ async fn main() -> Result<(), Report> {
             refresh_timeout,
             flush_timeout,
         } => {
-            let addr: SocketAddr = bind.parse().expect("Invalid bind");
+            let addr: SocketAddr = bind
+                .parse()
+                .wrap_err_with(|| format!("Invalid bind `{}`", &bind))?;
 
             let in_write_mode = flush_timeout.is_some() || !read_only;
-            let flush_on_write = flush_timeout.map_or(!*read_only, |x| x == 0);
+            let flush_on_write = flush_timeout.map_or(!read_only, |x| x == 0);
 
-            let backend = backend_options.build().unwrap();
+            let backend =
+                backend_options.build().wrap_err("Invalid backend")?;
+
             let index = backend
                 .load()
-                .instrument(tracing::info_span!("load_index"))
+                .instrument(tracing::debug_span!("load_index"))
                 .await
-                .unwrap();
+                .wrap_err("Failed to load index")?;
 
             let state =
                 server::State::new(index, backend, *read_only, flush_on_write);
@@ -149,8 +153,13 @@ async fn main() -> Result<(), Report> {
             Ok(())
         }
         Command::Query { backend_options, query } => {
-            let backend = backend_options.build().unwrap();
-            let index = backend.load().await.unwrap();
+            let backend =
+                backend_options.build().wrap_err("Invalid backend")?;
+            let index = backend
+                .load()
+                .instrument(tracing::debug_span!("load_index"))
+                .await
+                .wrap_err("Failed to load index")?;
 
             let res = index.execute(query)?;
 
@@ -163,14 +172,17 @@ async fn main() -> Result<(), Report> {
             Ok(())
         }
         Command::Copy { from, to } => {
-            let from_backend = from.build().unwrap();
-            let to_backend = to.build().unwrap();
-            to_backend.clear().await.unwrap();
+            let from_backend =
+                from.build().wrap_err("Invalid source backend")?;
+            let to_backend =
+                to.build().wrap_err("Invalid destination backend")?;
+            to_backend.clear().await?;
+
             let mut index = from_backend
                 .load()
                 .instrument(tracing::debug_span!("load_index"))
                 .await
-                .unwrap();
+                .wrap_err("Failed to load index")?;
 
             index.optimize();
 
@@ -178,7 +190,7 @@ async fn main() -> Result<(), Report> {
                 .dump(&index)
                 .instrument(tracing::debug_span!("dump_index"))
                 .await
-                .unwrap();
+                .wrap_err("Failed to dump index")?;
             Ok(())
         }
     }

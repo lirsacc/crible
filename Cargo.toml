@@ -7,30 +7,36 @@ publish = false
 authors = ["lirsacc <code@lirsac.com>"]
 
 [dependencies]
-async-trait = "0.1.52"
-axum = "0.4.8"
+async-trait = "0.1.57"
+axum = "0.6.0-rc"
 base64 = "0.13.0"
-clap = { version = "3.1.6", features = ["derive", "cargo", "env"] }
-color-eyre = "0.6.1"
+clap = { version = "4.0.17", features = ["derive", "cargo", "env"] }
+color-eyre = "0.6.2"
 crible-lib = { path = "./crible-lib" }
-croaring = "0.5.1"
-eyre = "0.6.7"
-parking_lot = "0.12.0"
-redis = { version = "0.21.5", features = ["tokio-comp", "connection-manager"] }
-serde = "1.0.136"
-serde_derive = "1.0.136"
-serde_json = "1.0.79"
-tokio = {version = "1.17.0", features = ["full"] }
-tokio-util = { version = "0.7.0", features = ["compat"] }
-tower = "0.4.12"
-tower-http = { version = "0.2.4", features = ["trace", "request-id", "catch-panic"] }
-tracing = { version = "0.1.32", features=["log"] }
-tracing-subscriber = {version = "0.3.9", features = ["time", "env-filter", "json"] }
-ulid = "0.5.0"
-url = "2.2.2"
+croaring = "0.6.1"
+dashmap = { version = "5.4.0", features = ["rayon", "serde"] }
+eyre = "0.6.8"
+flume = "0.10.14"
+num_cpus = "1.13.1"
+parking_lot = "0.12.1"
+rayon = "1.5.3"
+redis = { version = "0.22.0", features = ["tokio-comp", "connection-manager"] }
+serde = "1.0.145"
+serde_derive = "1.0.145"
+serde_json = "1.0.86"
+shadow-rs = "0.17.0"
+thiserror = "1.0.37"
+tokio = { version = "1.21.2", features = ["full"] }
+tokio-util = { version = "0.7.4", features = ["compat"] }
+tower = "0.4.13"
+tower-http = { version = "0.3.4", features = ["trace", "request-id", "catch-panic"] }
+tracing = { version = "0.1.37", features = ["log"] }
+tracing-subscriber = { version = "0.3.16", features = ["time", "env-filter", "json"] }
+ulid = "1.0.0"
+url = "2.3.1"
 
 [dev-dependencies]
-rstest = "0.12.0"
+rstest = "0.15.0"
 
 [profile.release]
 strip = true
@@ -38,3 +44,6 @@ lto = true
 
 [workspace]
 members = ["crible-lib"]
+
+[build-dependencies]
+shadow-rs = "0.17.0"

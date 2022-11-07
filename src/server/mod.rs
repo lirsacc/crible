@@ -1,59 +1,33 @@
-use axum::{
-    extract::Extension,
-    handler::Handler,
-    http::{header::HeaderName, Request},
-    response::Response,
-    routing::{delete, get, post},
-    Router, Server,
-};
-use color_eyre::Report;
-use parking_lot::RwLock;
-use tower::make::Shared;
-use tower::ServiceBuilder;
-use tower_http::request_id::{MakeRequestId, RequestId};
-use tower_http::{
-    catch_panic::CatchPanicLayer, classify::ServerErrorsFailureClass,
-    trace::TraceLayer, ServiceBuilderExt,
-};
-use tracing::Span;
-
 use std::net::SocketAddr;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crible_lib::index::Index;
+use axum::http::header::HeaderName;
+use axum::http::Request;
+use axum::response::Response;
+use axum::routing::{get, post};
+use axum::{Router, Server};
+use color_eyre::Report;
+use tower::make::Shared;
+use tower::ServiceBuilder;
+use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::classify::ServerErrorsFailureClass;
+use tower_http::request_id::{MakeRequestId, RequestId};
+use tower_http::trace::TraceLayer;
+use tower_http::ServiceBuilderExt;
+use tracing::{Instrument, Span};
 
-use crate::backends::Backend;
+use crate::executor::Executor;
 
 mod api;
 mod errors;
-mod readwrite;
-
-pub use readwrite::{run_flush_task, run_refresh_task};
 
 #[derive(Clone)]
-pub struct State {
-    read_only: bool,
-    flush_on_write: bool,
-    backend: Arc<Box<dyn Backend>>,
-    index: Arc<RwLock<Index>>,
-    write_count: Arc<AtomicU64>,
-}
+pub struct State(Arc<Executor>);
 
 impl State {
-    pub fn new(
-        index: Index,
-        backend: Box<dyn Backend>,
-        read_only: bool,
-        flush_on_write: bool,
-    ) -> Self {
-        Self {
-            backend: Arc::new(backend),
-            index: Arc::new(RwLock::new(index)),
-            read_only,
-            flush_on_write,
-            write_count: Arc::new(AtomicU64::new(0)),
-        }
+    pub fn new(executor: Executor) -> Self {
+        Self(Arc::new(executor))
     }
 }
 
@@ -70,21 +44,24 @@ fn format_latency(latency: Duration) -> String {
     format!("{}μs", latency.as_micros())
 }
 
-pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
-    let app = Router::new()
+pub async fn run(
+    addr: &SocketAddr,
+    keep_alive: Option<Duration>,
+    state: State,
+) -> Result<(), Report> {
+    let app = Router::with_state(state)
         .route("/", get(api::handler_home))
         .route("/query", post(api::handler_query))
         .route("/count", post(api::handler_count))
-        .route("/stats", get(api::handler_stats))
+        .route("/stats", post(api::handler_stats))
         .route("/set", post(api::handler_set))
         .route("/set-many", post(api::handler_set_many))
         .route("/unset", post(api::handler_unset))
         .route("/unset-many", post(api::handler_unset_many))
-        .route("/bit/:id", get(api::handler_get_bit))
-        .route("/bit/:id", post(api::handler_set_bit))
-        .route("/bit/:id", delete(api::handler_delete_bit))
-        .route("/bit", delete(api::handler_delete_bits))
-        .fallback(api::handler_not_found.into_service());
+        .route("/get-bit", post(api::handler_get_bit))
+        .route("/set-bit", post(api::handler_set_bit))
+        .route("/delete-bits", post(api::handler_delete_bits))
+        .fallback(api::handler_not_found);
 
     let svc = ServiceBuilder::new()
         .set_x_request_id(RequestIdBuilder::default())
@@ -124,11 +101,11 @@ pub async fn run(addr: &SocketAddr, state: State) -> Result<(), Report> {
                 ),
         )
         .propagate_x_request_id()
-        .layer(Extension(state))
         .layer(CatchPanicLayer::new())
         .service(app);
 
     Server::bind(addr)
+        .tcp_keepalive(keep_alive)
         .serve(Shared::new(svc))
         .with_graceful_shutdown(crate::utils::shutdown_signal("server task"))
         .await
@@ -143,5 +120,37 @@ struct RequestIdBuilder();
 impl MakeRequestId for RequestIdBuilder {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
         Some(RequestId::new(ulid::Ulid::new().to_string().parse().unwrap()))
+    }
+}
+
+pub async fn run_refresh_task(state: State, every: Duration) {
+    tracing::info!(
+        "Starting refresh task. Will update backend every {:?}.",
+        every
+    );
+
+    let mut interval = tokio::time::interval(every);
+
+    loop {
+        tokio::select! {
+            _ = crate::utils::shutdown_signal("Backend task") => {
+                break;
+            },
+            _ = interval.tick() => {
+                async {
+                    match state.0.reload().await
+                    {
+                        Ok(_) => {
+                            tracing::info!("Reloaded index.");
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to reload index data: {}", e);
+                        }
+                    }
+                }
+                .instrument(tracing::info_span!("reload_index"))
+                .await;
+            }
+        }
     }
 }

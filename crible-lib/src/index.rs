@@ -133,7 +133,8 @@ impl Index {
 
     // Operate on individual bits.
 
-    /// Set a bit for a single property. Returns whether the bit was not already set.
+    /// Set a bit for a single property. Returns whether the bit was not already
+    /// set.
     ///
     /// ```
     /// # use crible_lib::index::Index;
@@ -184,7 +185,10 @@ impl Index {
     /// index.set_all(&vec![2, 3]);
     ///
     /// assert_eq!(index.get_property("foo").unwrap().to_vec(), vec![1, 2, 3, 4]);
-    /// assert_eq!(index.get_property("bar").unwrap().to_vec(), vec![2, 3, 5, 6, 7]);
+    /// assert_eq!(
+    ///     index.get_property("bar").unwrap().to_vec(),
+    ///     vec![2, 3, 5, 6, 7]
+    /// );
     /// assert_eq!(index.get_property("baz").unwrap().to_vec(), vec![2, 3, 8, 9]);
     /// ```
     pub fn set_all(&mut self, bits: &[u32]) {
@@ -271,16 +275,12 @@ impl Index {
     /// assert_eq!(index.get_properties_with_bit(2), vec!["baz", "foo"]);
     /// ```
     pub fn get_properties_with_bit(&self, bit: u32) -> Vec<String> {
-        let mut vec: Vec<String> =
-            self.into_iter()
-                .filter_map(|(k, v)| {
-                    if v.contains(bit) {
-                        Some(k.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+        let mut vec: Vec<String> = self
+            .into_iter()
+            .filter_map(
+                |(k, v)| if v.contains(bit) { Some(k.clone()) } else { None },
+            )
+            .collect();
         vec.sort_unstable();
         vec
     }
@@ -298,7 +298,10 @@ impl Index {
     ///     ("baz", vec![2, 3, 4]),
     /// ]);
     ///
-    /// index.set_properties_with_bit(8, &vec!["foo", "bar"].iter().map(|s| s.to_owned()).collect::<Vec<_>>());
+    /// index.set_properties_with_bit(
+    ///     8,
+    ///     &vec!["foo", "bar"].iter().map(|s| s.to_owned()).collect::<Vec<_>>(),
+    /// );
     /// assert_eq!(index.get_properties_with_bit(8), vec!["bar", "foo"]);
     /// ```
     pub fn set_properties_with_bit<T: AsRef<str>>(
@@ -340,9 +343,7 @@ impl Index {
     ///     vec![1, 2, 3, 6],
     /// );
     ///
-    /// assert!(
-    ///     index.execute(&"unknown".parse().unwrap()).is_err()
-    /// );
+    /// assert!(index.execute(&"unknown".parse().unwrap()).is_err());
     ///
     /// assert_eq!(
     ///     index.execute(&"foo and bar".parse().unwrap()).unwrap().to_vec(),
@@ -364,7 +365,6 @@ impl Index {
     ///     vec![2, 6],
     /// );
     /// ```
-    ///
     pub fn execute(&self, expression: &Expression) -> Result<Bitmap, Error> {
         match expression {
             Expression::Root => Ok(self.root()),
@@ -452,12 +452,42 @@ impl Index {
         prefix: Option<&str>,
     ) -> HashMap<String, u64> {
         match prefix {
-            None => (&self.0)
+            None => self
+                .0
                 .iter()
                 .filter_map(|x| _filter_map_cardinality(source, x))
                 .collect(),
-            Some(p) => (&self.0)
+            Some(p) => self
+                .0
                 .iter()
+                .filter_map(|(k, v)| {
+                    if k.starts_with(p) {
+                        _filter_map_cardinality(source, (k, v))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    pub fn par_cardinalities(
+        &self,
+        source: &Bitmap,
+        prefix: Option<&str>,
+    ) -> HashMap<String, u64> {
+        use rayon::prelude::*;
+
+        // TODO: Chunking may be more efficient.
+        match prefix {
+            None => self
+                .0
+                .par_iter()
+                .filter_map(|x| _filter_map_cardinality(source, x))
+                .collect(),
+            Some(p) => self
+                .0
+                .par_iter()
                 .filter_map(|(k, v)| {
                     if k.starts_with(p) {
                         _filter_map_cardinality(source, (k, v))
@@ -476,11 +506,7 @@ fn _filter_map_cardinality(
     (k, v): (&String, &Bitmap),
 ) -> Option<(String, u64)> {
     let x = source.and_cardinality(v);
-    if x > 0 {
-        Some((k.clone(), x))
-    } else {
-        None
-    }
+    if x > 0 { Some((k.clone(), x)) } else { None }
 }
 
 impl std::fmt::Debug for Index {
@@ -499,7 +525,7 @@ impl<'a> IntoIterator for &'a Index {
     }
 }
 
-#[derive(Debug, Serialize, Default, PartialEq)]
+#[derive(Debug, Serialize, Default, PartialEq, Eq)]
 pub struct Stats {
     pub cardinality: u64,
     pub minimum: Option<u32>,
@@ -538,8 +564,9 @@ impl From<&Index> for Stats {
 // over real-life data.
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     // macro_rules! assert_query {
     //     ($index:expr, $value:expr, $expected:expr) => {

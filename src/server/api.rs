@@ -1,17 +1,11 @@
-use axum::{
-    extract::{Extension, Path},
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
-use serde_derive::{Deserialize, Serialize};
+use axum::extract::State as ExtractState;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::Json;
 
-use std::collections::HashMap;
-
-use crible_lib::{expression::Expression, index::Stats};
-
-use super::readwrite::handle_write;
-use super::{errors::APIError, State};
+use super::errors::APIError;
+use super::State;
+use crate::operations::{self, Operation};
 
 pub async fn handler_home() -> impl IntoResponse {
     format!("Crible Server {}", env!("CARGO_PKG_VERSION"))
@@ -25,190 +19,130 @@ pub type APIResult<T> = Result<(StatusCode, T), APIError>;
 pub type JSONAPIResult<T> = Result<(StatusCode, Json<T>), APIError>;
 pub type StaticAPIResult = APIResult<&'static str>;
 
-#[derive(Deserialize)]
-pub struct QueryPayload {
-    query: String,
-    include_cardinalities: Option<bool>,
-}
-
-#[derive(Serialize)]
-pub struct QueryResponse {
-    values: Vec<u32>,
-    cardinalities: Option<HashMap<String, u64>>,
-}
-
-/// Run a query against the index. The result will include all unique elements
-/// matching the query and optionally (if `include_cardinalities` is provided
-/// and true) a map containing the cardinality of the intersection of the query
-/// and every property included in the index.
 pub async fn handler_query(
-    Json(payload): Json<QueryPayload>,
-    Extension(state): Extension<State>,
-) -> JSONAPIResult<QueryResponse> {
-    let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read();
-    let bm = idx.execute(&expr)?;
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::Query>,
+) -> JSONAPIResult<operations::QueryResult> {
     Ok((
         StatusCode::OK,
-        Json(QueryResponse {
-            values: bm.to_vec(),
-            cardinalities: match payload.include_cardinalities {
-                Some(true) => Some(idx.cardinalities(&bm, None)),
-                _ => None,
-            },
-        }),
+        Json(state.0.spawn(move |index| payload.run(index.as_ref())).await??),
     ))
 }
 
 /// Count elements matching a query.
 pub async fn handler_count(
-    Json(payload): Json<QueryPayload>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::Count>,
 ) -> JSONAPIResult<u64> {
-    let expr = Expression::parse(&*payload.query)?;
-    let idx = state.index.as_ref().read();
-    let bm = idx.execute(&expr)?;
-    Ok((StatusCode::OK, Json(bm.cardinality())))
-}
-
-#[derive(Serialize)]
-pub struct StatsResponse {
-    root: Stats,
-    properties: HashMap<String, Stats>,
-}
-
-pub async fn handler_stats(
-    Extension(state): Extension<State>,
-) -> JSONAPIResult<StatsResponse> {
-    let idx = state.index.as_ref().read();
     Ok((
         StatusCode::OK,
-        Json(StatsResponse {
-            root: (&*idx).into(),
-            properties: idx
-                .into_iter()
-                .map(|(k, v)| (k.clone(), v.into()))
-                .collect(),
-        }),
+        Json(state.0.spawn(move |index| payload.run(index.as_ref())).await??),
     ))
 }
 
-#[derive(Deserialize)]
-pub struct SetPayload {
-    property: String,
-    bit: u32,
+pub async fn handler_stats(
+    ExtractState(state): ExtractState<State>,
+) -> JSONAPIResult<operations::StatsResult> {
+    Ok((
+        StatusCode::OK,
+        Json(
+            state
+                .0
+                .spawn(move |index| (operations::Stats {}).run(index.as_ref()))
+                .await?,
+        ),
+    ))
 }
 
 pub async fn handler_set(
-    Json(payload): Json<SetPayload>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::Set>,
 ) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.read_only {
+        return Err(operations::OperationError::ReadOnly.into());
     }
 
-    let added =
-        state.index.as_ref().write().set(&payload.property, payload.bit);
-    let status_code =
-        if added { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    handle_write(&state).await?;
-    Ok((status_code, ""))
+    if state.0.spawn(move |index| payload.run(index.as_ref())).await? {
+        state.0.flush().await?;
+        Ok((StatusCode::OK, ""))
+    } else {
+        Ok((StatusCode::NO_CONTENT, ""))
+    }
 }
 
 pub async fn handler_set_many(
-    Json(payload): Json<Vec<(String, Vec<u32>)>>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::SetMany>,
 ) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.read_only {
+        return Err(operations::OperationError::ReadOnly.into());
     }
 
-    {
-        let mut idx = state.index.as_ref().write();
-        for (property, bits) in &payload {
-            idx.set_many(property, bits);
-        }
-    }
-    handle_write(&state).await?;
+    state.0.spawn(move |index| payload.run(index.as_ref())).await?;
+    state.0.flush().await?;
     Ok((StatusCode::OK, ""))
 }
 
 pub async fn handler_unset(
-    Json(payload): Json<SetPayload>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::Unset>,
 ) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.read_only {
+        return Err(operations::OperationError::ReadOnly.into());
     }
 
-    let deleted =
-        state.index.as_ref().write().unset(&payload.property, payload.bit);
-    let status_code =
-        if deleted { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    handle_write(&state).await?;
-    Ok((status_code, ""))
+    if state.0.spawn(move |index| payload.run(index.as_ref())).await? {
+        state.0.flush().await?;
+        Ok((StatusCode::OK, ""))
+    } else {
+        Ok((StatusCode::NO_CONTENT, ""))
+    }
 }
 
 pub async fn handler_unset_many(
-    Json(payload): Json<Vec<(String, Vec<u32>)>>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::UnsetMany>,
 ) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.read_only {
+        return Err(operations::OperationError::ReadOnly.into());
     }
 
-    {
-        let mut idx = state.index.as_ref().write();
-        for (property, bits) in &payload {
-            idx.unset_many(property, bits);
-        }
-    }
-    handle_write(&state).await?;
+    state.0.spawn(move |index| payload.run(index.as_ref())).await?;
+    state.0.flush().await?;
     Ok((StatusCode::OK, ""))
 }
 
 pub async fn handler_get_bit(
-    Path(bit): Path<u32>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::GetBit>,
 ) -> JSONAPIResult<Vec<String>> {
-    let properties = state.index.as_ref().read().get_properties_with_bit(bit);
-    Ok((StatusCode::OK, Json(properties)))
+    Ok((
+        StatusCode::OK,
+        Json(state.0.spawn(move |index| payload.run(index.as_ref())).await?),
+    ))
 }
 
 pub async fn handler_set_bit(
-    Path(bit): Path<u32>,
-    Json(properties): Json<Vec<String>>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::SetBit>,
 ) -> StaticAPIResult {
-    let changed =
-        state.index.as_ref().write().set_properties_with_bit(bit, &properties);
-    let status_code =
-        if changed { StatusCode::OK } else { StatusCode::NO_CONTENT };
-    Ok((status_code, ""))
-}
-
-pub async fn handler_delete_bit(
-    Path(bit): Path<u32>,
-    Extension(state): Extension<State>,
-) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.spawn(move |index| payload.run(index.as_ref())).await? {
+        state.0.flush().await?;
+        Ok((StatusCode::OK, ""))
+    } else {
+        Ok((StatusCode::NO_CONTENT, ""))
     }
-
-    state.index.as_ref().write().unset_all(&[bit]);
-    handle_write(&state).await?;
-    Ok((StatusCode::OK, ""))
 }
 
 pub async fn handler_delete_bits(
-    Json(bits): Json<Vec<u32>>,
-    Extension(state): Extension<State>,
+    ExtractState(state): ExtractState<State>,
+    Json(payload): Json<operations::DeleteBits>,
 ) -> StaticAPIResult {
-    if state.read_only {
-        return Err(APIError::ReadOnly);
+    if state.0.read_only {
+        return Err(operations::OperationError::ReadOnly.into());
     }
 
-    state.index.as_ref().write().unset_all(&bits);
-    handle_write(&state).await?;
+    state.0.spawn(move |index| payload.run(index.as_ref())).await?;
+    state.0.flush().await?;
     Ok((StatusCode::OK, ""))
 }

@@ -1,10 +1,9 @@
-use async_trait::async_trait;
-use croaring::Bitmap;
-use eyre::Context;
-use redis::AsyncCommands;
+use std::collections::HashMap;
 
 use crible_lib::index::Index;
-use std::collections::HashMap;
+use croaring::Bitmap;
+use eyre::Context;
+use redis::Commands;
 
 use super::Backend;
 
@@ -25,21 +24,20 @@ impl Redis {
     }
 }
 
-#[async_trait]
 impl Backend for Redis {
-    async fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
+    fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
         let mut pipe = redis::pipe();
         for (k, v) in index.inner() {
             pipe.hset(&self.key, k, v.serialize());
         }
-        let mut con = self.client.get_async_connection().await?;
-        pipe.query_async(&mut con).await?;
+        let mut con = self.client.get_connection()?;
+        pipe.query(&mut con)?;
         Ok(())
     }
 
-    async fn load(&self) -> Result<Index, eyre::Report> {
-        let mut con = self.client.get_async_connection().await?;
-        let data: HashMap<String, Vec<u8>> = con.hgetall(&self.key).await?;
+    fn load(&self) -> Result<Index, eyre::Report> {
+        let mut con = self.client.get_connection()?;
+        let data: HashMap<String, Vec<u8>> = con.hgetall(&self.key)?;
         Ok(Index::new(
             data.iter()
                 .map(|(k, v)| (k.clone(), Bitmap::deserialize(v)))
@@ -47,9 +45,9 @@ impl Backend for Redis {
         ))
     }
 
-    async fn clear(&self) -> Result<(), eyre::Report> {
-        let mut con = self.client.get_async_connection().await?;
-        con.del(&self.key).await?;
+    fn clear(&self) -> Result<(), eyre::Report> {
+        let mut con = self.client.get_connection()?;
+        con.del(&self.key)?;
         Ok(())
     }
 }

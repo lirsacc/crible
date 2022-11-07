@@ -5,18 +5,19 @@
 // TODO: Better error handling?
 // TODO: Fuzzy precedence?
 
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, tag_no_case},
-    character::complete::{alpha1, alphanumeric1, multispace0, multispace1},
-    combinator::{cut, map, recognize, verify},
-    multi::{many0, many1},
-    sequence::{delimited, pair, terminated},
-    IResult,
-};
-use thiserror::Error;
-
+use std::ops::{BitAnd, BitOr, BitXor, Not, Sub};
 use std::str::FromStr;
+
+use nom::branch::alt;
+use nom::bytes::complete::{tag, tag_no_case};
+use nom::character::complete::{
+    alpha1, alphanumeric1, multispace0, multispace1,
+};
+use nom::combinator::{cut, map, recognize, verify};
+use nom::multi::{many0, many1};
+use nom::sequence::{delimited, pair, terminated};
+use nom::IResult;
+use thiserror::Error;
 
 const MAX_LENGTH: usize = 2048;
 
@@ -55,7 +56,8 @@ fn parse_property(s: &str) -> IResult<&str, Expression> {
             recognize(pair(
                 // Properties start with a letter
                 alpha1,
-                // They can then be any combination of letter, digit and separator ([-_./:])
+                // They can then be any combination of letter, digit and
+                // separator ([-_./:])
                 many0(alt((
                     alphanumeric1,
                     tag("_"),
@@ -174,9 +176,10 @@ fn parse_root(s: &str) -> ParseResult {
 
 fn parse_expression(s: &str) -> ParseResult {
     alt((
-        // '*' is a valid query when used standalone. It's invalid used anywhere
-        // else. There's no further validation that the root term can only occur
-        // alone, so this is only true for parsed queries.
+        // '*' is a valid query when used standalone. It's invalid used
+        // anywhere else. There's no further validation that the root
+        // term can only occur alone, so this is only true for parsed
+        // queries.
         parse_root,
         parse_subexpression,
     ))(s)
@@ -248,59 +251,6 @@ impl Expression {
         Expression::Property(name.to_owned())
     }
 
-    #[inline]
-    pub fn or(lhs: Self, rhs: Self) -> Self {
-        match (lhs, rhs) {
-            (Expression::Or(l), Expression::Or(r)) => {
-                Expression::Or([r, l].concat())
-            }
-            (Expression::Or(l), r) => Expression::Or([l, vec![r]].concat()),
-            (l, Expression::Or(r)) => Expression::Or([vec![l], r].concat()),
-            (l, r) => Expression::Or(vec![l, r]),
-        }
-    }
-
-    #[inline]
-    pub fn and(lhs: Self, rhs: Self) -> Self {
-        match (lhs, rhs) {
-            (Expression::And(l), Expression::And(r)) => {
-                Expression::And([r, l].concat())
-            }
-            (Expression::And(l), r) => Expression::And([l, vec![r]].concat()),
-            (l, Expression::And(r)) => Expression::And([vec![l], r].concat()),
-            (l, r) => Expression::And(vec![l, r]),
-        }
-    }
-
-    #[inline]
-    pub fn xor(lhs: Self, rhs: Self) -> Self {
-        match (lhs, rhs) {
-            (Expression::Xor(l), Expression::Xor(r)) => {
-                Expression::Xor([r, l].concat())
-            }
-            (Expression::Xor(l), r) => Expression::Xor([l, vec![r]].concat()),
-            (l, Expression::Xor(r)) => Expression::Xor([vec![l], r].concat()),
-            (l, r) => Expression::Xor(vec![l, r]),
-        }
-    }
-
-    #[inline]
-    pub fn sub(lhs: Self, rhs: Self) -> Self {
-        match (lhs, rhs) {
-            (Expression::Sub(l), Expression::Sub(r)) => {
-                Expression::Sub([r, l].concat())
-            }
-            (Expression::Sub(l), r) => Expression::Sub([l, vec![r]].concat()),
-            (l, Expression::Sub(r)) => Expression::Sub([vec![l], r].concat()),
-            (l, r) => Expression::Sub(vec![l, r]),
-        }
-    }
-
-    #[inline]
-    pub fn not(expr: Self) -> Self {
-        Expression::Not(Box::new(expr))
-    }
-
     // This should provide a _canonical_ representation of a query ignoring
     // whitespace and parenthesis. Useful for caching / deduplication / etc.
     pub fn serialize(&self) -> String {
@@ -323,10 +273,82 @@ impl FromStr for Expression {
     }
 }
 
+impl BitOr for Expression {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Expression::Or(l), Expression::Or(r)) => {
+                Expression::Or([r, l].concat())
+            }
+            (Expression::Or(l), r) => Expression::Or([l, vec![r]].concat()),
+            (l, Expression::Or(r)) => Expression::Or([vec![l], r].concat()),
+            (l, r) => Expression::Or(vec![l, r]),
+        }
+    }
+}
+
+impl BitAnd for Expression {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Expression::And(l), Expression::And(r)) => {
+                Expression::And([r, l].concat())
+            }
+            (Expression::And(l), r) => Expression::And([l, vec![r]].concat()),
+            (l, Expression::And(r)) => Expression::And([vec![l], r].concat()),
+            (l, r) => Expression::And(vec![l, r]),
+        }
+    }
+}
+
+impl BitXor for Expression {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Expression::Xor(l), Expression::Xor(r)) => {
+                Expression::Xor([r, l].concat())
+            }
+            (Expression::Xor(l), r) => Expression::Xor([l, vec![r]].concat()),
+            (l, Expression::Xor(r)) => Expression::Xor([vec![l], r].concat()),
+            (l, r) => Expression::Xor(vec![l, r]),
+        }
+    }
+}
+
+impl Sub for Expression {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Expression::Sub(l), Expression::Sub(r)) => {
+                Expression::Sub([r, l].concat())
+            }
+            (Expression::Sub(l), r) => Expression::Sub([l, vec![r]].concat()),
+            (l, Expression::Sub(r)) => Expression::Sub([vec![l], r].concat()),
+            (l, r) => Expression::Sub(vec![l, r]),
+        }
+    }
+}
+
+impl Not for Expression {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Expression::Not(e) => *e,
+            e => Expression::Not(Box::new(e)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     // Write less verbose tests
     type E = Expression;
@@ -367,32 +389,32 @@ mod tests {
     #[case("(not (foo))", E::not(p("foo")))]
     #[case("!foo", E::not(p("foo")))]
     #[case("!(foo)", E::not(p("foo")))]
-    #[case("foo and bar", E::and(p("foo"), p("bar")))]
+    #[case("foo and bar", p("foo") & p("bar"))]
     #[case("foo and bar and baz", E::And(vec![p("foo"), p("bar"), p("baz")]))]
-    #[case("foo or bar", E::or(p("foo"), p("bar")))]
+    #[case("foo or bar", p("foo") | p("bar"))]
     #[case("foo or bar or baz", E::Or(vec![p("foo"), p("bar"), p("baz")]))]
-    #[case("foo xor bar", E::xor(p("foo"), p("bar")))]
+    #[case("foo xor bar", p("foo") ^ p("bar"))]
     #[case("foo xor bar xor baz", E::Xor(vec![p("foo"), p("bar"), p("baz")]))]
-    #[case("foo and not bar", E::and(p("foo"), E::not(p("bar"))))]
-    #[case("not not not not foo", E::not(E::not(E::not(E::not(p("foo"),)))))]
-    #[case("not foo and bar", E::and(E::not(p("foo")), p("bar"),))]
-    #[case("(not foo) and bar", E::and(E::not(p("foo")), p("bar"),))]
-    #[case("not (foo and bar)", E::not(E::and(p("foo"), p("bar")),))]
+    #[case("foo and not bar", p("foo") & E::not(p("bar")))]
+    #[case("not not not not foo", E::not(E::not(E::not(E::not(p("foo"))))))]
+    #[case("not foo and bar", E::not(p("foo")) & p("bar"))]
+    #[case("(not foo) and bar", E::not(p("foo")) & p("bar"))]
+    #[case("not (foo and bar)", E::not(p("foo") & p("bar")))]
     #[case(
         "(foo and bar) or baz",
-        E::or(E::and(p("foo"), p("bar"),), p("baz"),)
+        (p("foo") & p("bar")) | p("baz")
     )]
     #[case(
         "foo and (bar or baz)",
-        E::and(p("foo"), E::or(p("bar"), p("baz"),),)
+        p("foo") & (p("bar") | p("baz"))
     )]
-    #[case("foo - (bar or baz)", E::sub(p("foo"), E::or(p("bar"), p("baz"),),))]
+    #[case("foo - (bar or baz)", p("foo") - (p("bar") | p("baz")))]
     #[case(
         "foo - (bar or baz) - (foo and bar and baz)",
         E::Sub(
             vec![
                 p("foo"),
-                E::or(p("bar"), p("baz")),
+                (p("bar") | p("baz")),
                 E::And(vec![p("foo"), p("bar"), p("baz")]),
             ]
         )
@@ -402,7 +424,7 @@ mod tests {
         E::Sub(
             vec![
                 p("foo"),
-                E::or(p("bar"), p("baz")),
+                p("bar") | p("baz"),
                 E::And(vec![p("foo"), E::And(vec![
                     p("bar"),
                     p("baz"),

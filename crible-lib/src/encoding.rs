@@ -2,11 +2,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::str::FromStr;
 
-use futures::io::{
-    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
-    BufReader as AsyncBufReader,
-};
-use futures::StreamExt;
 use serde_derive::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -39,8 +34,8 @@ type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoder {
     /// The `Json` format is a new line delimited json encoded file where every
-    /// line is an object containing the `property` as a string and the `values`
-    /// as an array of numbers.
+    /// line is an object containing the `property` as a string and the
+    /// `values` as an array of numbers.
     ///
     /// It's not ideal for compression but should be easy to inspect and
     /// manipulate from any environment. Given that it's also independent from
@@ -48,9 +43,9 @@ pub enum Encoder {
     /// across updates (only structural changes would impact it and we can make
     /// those backwards compatible).
     Json,
-    /// The `Bin` format is the internal representation used by this library and
-    /// is suitable to ship an index across machines independent of the backend
-    /// used.
+    /// The `Bin` format is the internal representation used by this library
+    /// and is suitable to ship an index across machines independent of the
+    /// backend used.
     // TODO: Bincode might be hard to evolve over time, we should consider some
     // versioning scheme here.
     Bin,
@@ -68,35 +63,6 @@ impl Encoder {
         match self {
             Self::Json => encode_ndjson(w, index),
             Self::Bin => encode_bincode(w, index),
-        }
-    }
-
-    // TODO: Having the duplicate names isn't great here. It would be good to
-    // have a single API for encoding / decoding which could work for both
-    // cases.
-    // I think the core blocker here is that the JSON encoder _has_ to work line
-    // by line because holding the full buffer in memory may not be great while
-    // the bincode one is fine to work on the full buffer (~size of the index
-    // which we accept in memory). Even with an API over a stream of u8, it
-    // isn't clear to me how that would work for both sync and async.
-    pub async fn decode_async<R: AsyncRead + Unpin>(
-        self,
-        r: R,
-    ) -> Result<Index> {
-        match self {
-            Self::Json => decode_ndjson_async(r).await,
-            Self::Bin => decode_bincode_async(r).await,
-        }
-    }
-
-    pub async fn encode_async<W: AsyncWrite + Unpin>(
-        self,
-        w: W,
-        index: &Index,
-    ) -> Result<()> {
-        match self {
-            Self::Json => encode_ndjson_async(w, index).await,
-            Self::Bin => encode_bincode_async(w, index).await,
         }
     }
 
@@ -176,16 +142,6 @@ fn decode_ndjson<R: Read>(r: R) -> Result<Index> {
     Ok(index)
 }
 
-async fn decode_ndjson_async<R: AsyncRead + Unpin>(r: R) -> Result<Index> {
-    let mut index = Index::default();
-    let mut lines = AsyncBufReader::new(r).lines();
-    while let Some(x) = lines.next().await {
-        let ln = x?;
-        decode_ndjson_line(&mut index, ln.as_ref())?;
-    }
-    Ok(index)
-}
-
 fn encode_ndjson<W: Write>(mut w: W, index: &Index) -> Result<()> {
     let mut sorted_pairs = index.inner().iter().collect::<Vec<_>>();
     sorted_pairs.sort_by_key(|(k, _)| *k);
@@ -196,23 +152,6 @@ fn encode_ndjson<W: Write>(mut w: W, index: &Index) -> Result<()> {
         })?;
         w.write_all(&data)?;
         writeln!(&mut w)?;
-    }
-    Ok(())
-}
-
-async fn encode_ndjson_async<W: AsyncWrite + Unpin>(
-    mut w: W,
-    index: &Index,
-) -> Result<()> {
-    let mut sorted_pairs = index.inner().iter().collect::<Vec<_>>();
-    sorted_pairs.sort_by_key(|(k, _)| *k);
-    for (property, bm) in sorted_pairs {
-        let data = serde_json::to_vec(&JsonLineRecordOut {
-            property,
-            values: bm.to_vec(),
-        })?;
-        w.write_all(&data).await?;
-        w.write_all("\n".as_ref()).await?;
     }
     Ok(())
 }
@@ -244,14 +183,6 @@ fn decode_bincode<R: Read>(r: R) -> Result<Index> {
     decode_bincode_intermediate(data)
 }
 
-async fn decode_bincode_async<R: AsyncRead + Unpin>(r: R) -> Result<Index> {
-    let mut buffered = AsyncBufReader::new(r);
-    let mut bytes: Vec<u8> = Vec::new();
-    buffered.read_to_end(&mut bytes).await?;
-    let data: BincodeIntermediate = bincode::deserialize(&bytes)?;
-    decode_bincode_intermediate(data)
-}
-
 fn encode_bincode_intermediate(index: &Index) -> Result<Vec<u8>> {
     let mut sorted_pairs: BincodeIntermediate = index
         .inner()
@@ -267,19 +198,12 @@ fn encode_bincode<W: Write>(mut w: W, index: &Index) -> Result<()> {
     Ok(())
 }
 
-async fn encode_bincode_async<W: AsyncWrite + Unpin>(
-    mut w: W,
-    index: &Index,
-) -> Result<()> {
-    w.write_all(&encode_bincode_intermediate(index)?).await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::str;
+
     use super::Encoder;
     use crate::Index;
-    use std::str;
 
     macro_rules! test_index {
         () => {

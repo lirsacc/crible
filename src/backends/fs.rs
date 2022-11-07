@@ -1,5 +1,4 @@
-use async_trait::async_trait;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use std::fs;
 
 use crible_lib::{Encoder, Index};
 
@@ -22,51 +21,48 @@ impl FSBackend {
         Self { path: p.into(), encoder }
     }
 
-    pub async fn write(&self, index: &Index) -> Result<(), eyre::Report> {
+    pub fn write(&self, index: &Index) -> Result<(), eyre::Report> {
         let tmp = crate::utils::tmp_path(&self.path);
-        tokio::fs::create_dir_all(&self.path.parent().unwrap()).await?;
-        match tokio::fs::remove_file(&tmp).await {
+        fs::create_dir_all(self.path.parent().unwrap())?;
+        match fs::remove_file(&tmp) {
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             x => x,
         }?;
 
-        let f = tokio::fs::OpenOptions::new()
+        let f = fs::OpenOptions::new()
             .read(false)
             .write(true)
             .create(true)
-            .open(&tmp)
-            .await?;
+            .open(&tmp)?;
 
-        self.encoder.encode_async(f.compat(), index).await?;
+        self.encoder.encode(f, index)?;
 
-        tokio::fs::rename(&tmp, &self.path).await?;
+        fs::rename(&tmp, &self.path)?;
         Ok(())
     }
 
-    pub async fn read(&self) -> Result<Index, eyre::Report> {
-        let f = tokio::fs::OpenOptions::new()
+    pub fn read(&self) -> Result<Index, eyre::Report> {
+        let f = fs::OpenOptions::new()
             .read(true)
             .write(false)
             .create(false)
-            .open(&self.path)
-            .await?;
+            .open(&self.path)?;
 
-        Ok(self.encoder.decode_async(f.compat()).await?)
+        Ok(self.encoder.decode(f)?)
     }
 }
 
-#[async_trait]
 impl Backend for FSBackend {
-    async fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
-        self.write(index).await
+    fn dump<'a>(&self, index: &Index) -> Result<(), eyre::Report> {
+        self.write(index)
     }
 
-    async fn load(&self) -> Result<Index, eyre::Report> {
-        self.read().await
+    fn load(&self) -> Result<Index, eyre::Report> {
+        self.read()
     }
 
-    async fn clear(&self) -> Result<(), eyre::Report> {
-        match tokio::fs::remove_file(&self.path).await {
+    fn clear(&self) -> Result<(), eyre::Report> {
+        match fs::remove_file(&self.path) {
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             x => x,
         }?;
